@@ -1,0 +1,147 @@
+services:
+  portainer:
+    image: portainer/portainer-ce
+    container_name: portainer
+    restart: always
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - backend
+
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - backend
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    network_mode: host
+    volumes:
+      - /mnt/nas/ha-config:/config
+    restart: unless-stopped
+    privileged: true
+
+  whisper:
+    image: rhasspy/wyoming-whisper
+    container_name: whisper
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - /mnt/nas/whisper:/data
+    command: --model base
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - backend
+
+  coqui-tts:
+    image: ghcr.io/coqui-ai/tts
+    container_name: coqui-tts
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    volumes:
+      - /mnt/nas/coqui-tts:/root/.local/share/tts
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - backend
+
+  octoprint:
+    image: octoprint/octoprint
+    container_name: octoprint
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - /mnt/nas/octoprint:/octoprint
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    networks:
+      - backend
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - /mnt/nas/open-webui:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - ollama
+    networks:
+      - backend
+
+  nextcloud-db:
+    image: mariadb:10.11
+    container_name: nextcloud-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=changeme
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=changeme
+    volumes:
+      - /mnt/nas/nextcloud-db:/var/lib/mysql
+    networks:
+      - backend
+
+  nextcloud:
+    image: nextcloud
+    container_name: nextcloud
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - nextcloud_app:/var/www/html
+      - /mnt/nas/nextcloud:/var/www/html/data
+      - /mnt/nas/gdrive:/mnt/gdrive
+    environment:
+      - MYSQL_HOST=nextcloud-db
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=changeme
+      - NEXTCLOUD_TRUSTED_DOMAINS=192.168.50.200
+    depends_on:
+      - nextcloud-db
+    networks:
+      - backend
+
+networks:
+  backend:
+
+volumes:
+  portainer_data:
+  ollama_models:
+  nextcloud_app:
