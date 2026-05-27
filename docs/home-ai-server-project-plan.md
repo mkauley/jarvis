@@ -226,6 +226,7 @@ Build a local, private home AI server that runs a large language model, integrat
 - [x] Consolidated docker-compose at ~/code/jarvis/docker/docker-compose.yml (all services in one file)
 - [x] Container management script at ~/code/jarvis/bash/container.sh
 - [x] Portainer accessible at http://jarvis:9000
+- [x] nvidia-container-toolkit installed (required for GPU passthrough to Docker containers)
 
 ### Docker install notes
 - Use `curl -fsSL https://get.docker.com | sh` — NOT `apt install docker.io`
@@ -245,8 +246,9 @@ docker exec -it <container_name> bash  # open shell inside container
 ```
 
 ### Phase 3 — LLM (Ollama + Open WebUI)
-- [ ] Set up RAID 1 on M.2 #2 and M.2 #3, mount at `/mnt/nas`
-- [ ] Start Ollama container: `bash ~/code/jarvis/bash/container.sh start ollama`
+- [x] Ollama container running (port 11434)
+- [x] Open WebUI container running (http://192.168.50.200:3000)
+- [ ] Create admin account at http://192.168.50.200:3000
 - [ ] Start with a small model to verify everything works:
 ```bash
 docker exec -it ollama ollama pull llama3        # ~4GB, 8B model for testing
@@ -261,38 +263,24 @@ docker exec -it ollama ollama pull llama3:70b
 curl http://localhost:11434/api/generate \
   -d '{"model": "llama3:70b", "prompt": "Hello!", "stream": false}'
 ```
-- [ ] Start Open WebUI: `bash ~/code/jarvis/bash/container.sh start open-webui`
-- [ ] Access at `http://192.168.50.200:3000` and create your admin account
 
 ### Phase 4 — Home Assistant
-- [ ] Start Home Assistant container: `bash ~/code/jarvis/bash/container.sh start homeassistant`
-- [ ] Access at `http://192.168.50.200:8123`
+- [x] Home Assistant container running (http://192.168.50.200:8123)
 - [ ] Complete initial HA setup and onboarding
 
 ### Phase 5 — NAS
-- [ ] Set up RAID 1 with mdadm on M.2 #2 and M.2 #3:
-```bash
-sudo apt install mdadm
-sudo mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/nvme1n1 /dev/nvme2n1
-```
-- [ ] Format and mount at `/mnt/nas`:
-```bash
-sudo mkfs.ext4 /dev/md0
-sudo mkdir -p /mnt/nas
-sudo mount /dev/md0 /mnt/nas
-```
-- [ ] Add to `/etc/fstab` for auto-mount on boot
-- [ ] Set up Samba share pointing at `/mnt/nas`:
-```bash
-sudo apt install samba
-```
+- [x] RAID 1 set up with mdadm on M.2 #2 and M.2 #3 (/dev/md0)
+- [x] Formatted ext4 and mounted at `/mnt/nas`
+- [x] Added to `/etc/fstab` for auto-mount on boot
+- [ ] Run Samba setup script: `bash ~/code/jarvis/bash/jarvis-nas.sh`
+- [ ] Verify share is accessible at `\\192.168.50.200\Jarvis` (Windows) or `smb://192.168.50.200/Jarvis` (Mac/Linux)
 
 ### Phase 6 — Voice Pipeline
 The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → Coqui TTS (voice) → Speaker**
 
+- [x] Whisper container running (port 10300)
+- [x] Coqui TTS container running (port 5002) — uses `tts-server` entrypoint with tacotron2-DDC model
 - [ ] Install Wyoming protocol integration in Home Assistant
-- [ ] Start Whisper container: `bash ~/code/jarvis/bash/container.sh start whisper`
-- [ ] Start Coqui TTS container: `bash ~/code/jarvis/bash/container.sh start coqui-tts`
 - [ ] Connect Whisper and Coqui TTS to HA via Wyoming integration
 - [ ] Configure Ollama as the conversation agent in HA
 - [ ] Test full voice pipeline end to end
@@ -355,7 +343,7 @@ crontab -e
 ```
 
 #### Nextcloud
-- [ ] Update passwords in `docker/docker-compose.yml` (replace `changeme` with real passwords)
+- [x] Passwords set in `docker/docker-compose.yml`
 - [ ] Start Nextcloud: `bash ~/code/jarvis/bash/container.sh start nextcloud-db && bash ~/code/jarvis/bash/container.sh start nextcloud`
 - [ ] Access at `http://192.168.50.200:8080` and complete initial setup
 - [ ] In Nextcloud admin → External Storage → add `/mnt/gdrive` as a local external storage mount
@@ -414,5 +402,7 @@ crontab -e
 - The `--gpus all` Docker flag is required for GPU acceleration in containers
 - Tailscale handles all remote access (HA + NAS) — no ports exposed to the public internet
 - Coqui TTS company shut down in 2024 but project is open source and actively community maintained
+- Coqui TTS container requires `entrypoint: tts-server` — the default `tts` entrypoint is a CLI synthesis tool, not a server
+- nvidia-container-toolkit must be installed separately from NVIDIA drivers for Docker GPU passthrough (`apt install nvidia-container-toolkit` + `nvidia-ctk runtime configure --runtime=docker`)
 - Do NOT select snaps during Ubuntu install — install everything via Docker instead
 - Ubuntu 26.04 ISO download mirror: releases.ubuntu.com/26.04/ (use if ubuntu.com is down)
