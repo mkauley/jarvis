@@ -34,7 +34,7 @@ services:
     container_name: homeassistant
     network_mode: host
     volumes:
-      - /mnt/nas/ha-config:/config
+      - /mnt/nas/docker/ha-config:/config
     restart: unless-stopped
     privileged: true
 
@@ -45,7 +45,7 @@ services:
     ports:
       - "10300:10300"
     volumes:
-      - /mnt/nas/whisper:/data
+      - /mnt/nas/docker/whisper:/data
     command: --model base
     deploy:
       resources:
@@ -64,7 +64,7 @@ services:
     ports:
       - "5002:5002"
     volumes:
-      - /mnt/nas/coqui-tts:/root/.local/share/tts
+      - /mnt/nas/docker/coqui-tts:/root/.local/share/tts
     entrypoint: tts-server
     command: --model_name tts_models/en/ljspeech/tacotron2-DDC --port 5002
     deploy:
@@ -84,7 +84,7 @@ services:
 #    ports:
 #      - "5000:5000"
 #    volumes:
-#      - /mnt/nas/octoprint:/octoprint
+#      - /mnt/nas/docker/octoprint:/octoprint
 #    devices:
 #      - /dev/ttyUSB0:/dev/ttyUSB0
 #    networks:
@@ -97,7 +97,7 @@ services:
     ports:
       - "3000:8080"
     volumes:
-      - /mnt/nas/open-webui:/app/backend/data
+      - /mnt/nas/docker/open-webui:/app/backend/data
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
     depends_on:
@@ -115,7 +115,7 @@ services:
       - MYSQL_USER=nextcloud
       - MYSQL_PASSWORD=N!14N0v3mb3rM1k3!M
     volumes:
-      - /mnt/nas/nextcloud-db:/var/lib/mysql
+      - /mnt/nas/docker/nextcloud-db:/var/lib/mysql
     networks:
       - backend
 
@@ -127,8 +127,8 @@ services:
       - "8080:80"
     volumes:
       - nextcloud_app:/var/www/html
-      - /mnt/nas/nextcloud:/var/www/html/data
-      - /mnt/nas/gdrive:/mnt/gdrive
+      - /mnt/nas/docker/nextcloud:/var/www/html/data
+      - /mnt/nas/docker/gdrive:/mnt/gdrive
     environment:
       - MYSQL_HOST=nextcloud-db
       - MYSQL_DATABASE=nextcloud
