@@ -268,12 +268,20 @@ curl http://localhost:11434/api/generate \
 - [x] Home Assistant container running (http://192.168.50.200:8123)
 - [ ] Complete initial HA setup and onboarding
 
-### Phase 5 — NAS
+### Phase 5 — NAS ✅ COMPLETE
 - [x] RAID 1 set up with mdadm on M.2 #2 and M.2 #3 (/dev/md0)
 - [x] Formatted ext4 and mounted at `/mnt/nas`
 - [x] Added to `/etc/fstab` for auto-mount on boot
-- [ ] Run Samba setup script: `bash ~/code/jarvis/bash/jarvis-nas.sh`
-- [ ] Verify share is accessible at `\\192.168.50.200\Jarvis` (Windows) or `smb://192.168.50.200/Jarvis` (Mac/Linux)
+- [x] Samba installed and configured via `bash ~/code/jarvis/bash/jarvis-nas.sh`
+- [x] Share accessible at `\\192.168.50.200\Jarvis` (Windows) or `smb://192.168.50.200/Jarvis` (Mac/Linux)
+- [x] Shared Samba user created (`jarvis-share`) for family access — no system login rights
+- [x] `/mnt/nas` permissions set to `nobody:nogroup 777` for write access
+
+### NAS Notes
+- Windows 10/11 blocks guest SMB by default — use a named Samba user instead of guest
+- To add or change the Samba user password: `sudo smbpasswd -a jarvis-share`
+- Container volumes live at `/mnt/nas/docker/` to keep the share root clean
+- All management via `\\192.168.50.200\Jarvis` from any device on the network
 
 ### Phase 6 — Voice Pipeline
 The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → Coqui TTS (voice) → Speaker**
