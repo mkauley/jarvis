@@ -75,18 +75,18 @@ services:
     networks:
       - backend
 
-  octoprint:
-    image: octoprint/octoprint
-    container_name: octoprint
-    restart: unless-stopped
-    ports:
-      - "5000:5000"
-    volumes:
-      - /mnt/nas/octoprint:/octoprint
-    devices:
-      - /dev/ttyUSB0:/dev/ttyUSB0
-    networks:
-      - backend
+#  octoprint:
+#    image: octoprint/octoprint
+#    container_name: octoprint
+#    restart: unless-stopped
+#    ports:
+#      - "5000:5000"
+#    volumes:
+#      - /mnt/nas/octoprint:/octoprint
+#    devices:
+#      - /dev/ttyUSB0:/dev/ttyUSB0
+#    networks:
+#      - backend
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
@@ -108,10 +108,10 @@ services:
     container_name: nextcloud-db
     restart: unless-stopped
     environment:
-      - MYSQL_ROOT_PASSWORD=changeme
+      - MYSQL_ROOT_PASSWORD=N!14N0v3mb3rM1k3!M
       - MYSQL_DATABASE=nextcloud
       - MYSQL_USER=nextcloud
-      - MYSQL_PASSWORD=changeme
+      - MYSQL_PASSWORD=N!14N0v3mb3rM1k3!M
     volumes:
       - /mnt/nas/nextcloud-db:/var/lib/mysql
     networks:
@@ -131,7 +131,7 @@ services:
       - MYSQL_HOST=nextcloud-db
       - MYSQL_DATABASE=nextcloud
       - MYSQL_USER=nextcloud
-      - MYSQL_PASSWORD=changeme
+      - MYSQL_PASSWORD=N!14N0v3mb3rM1k3!M
       - NEXTCLOUD_TRUSTED_DOMAINS=192.168.50.200
     depends_on:
       - nextcloud-db
