@@ -213,9 +213,10 @@ Build a local, private home AI server that runs a large language model, integrat
 - [x] SSH key authentication configured (Melkhior → JARVIS)
 - [x] SSH alias "jarvis" configured on Melkhior
 - [x] /etc/hosts updated on Melkhior (jarvis → 192.168.50.200)
+- [x] Router DNS configured on ASUS RT-AX3000 — `jarvis` resolves to 192.168.50.200 network-wide
 - [x] NVIDIA drivers installed (v595.71.05, CUDA 13.2)
 - [x] nvidia-smi verified — RTX 4090 recognized, 24GB VRAM
-- [ ] Apply Intel Baseline Profile in BIOS ⚠️ DO THIS BEFORE HEAVY USE
+- [x] Applied Intel Baseline Profile in BIOS
 
 ### Phase 2 — Docker & Container Management ✅ COMPLETE
 - [x] Docker installed (v29.5.2) via get.docker.com script
@@ -245,28 +246,42 @@ docker images                          # list downloaded images
 docker exec -it <container_name> bash  # open shell inside container
 ```
 
-### Phase 3 — LLM (Ollama + Open WebUI)
+### Phase 3 — LLM (Ollama + Open WebUI) ✅ COMPLETE
 - [x] Ollama container running (port 11434)
-- [x] Open WebUI container running (http://192.168.50.200:3000)
-- [ ] Create admin account at http://192.168.50.200:3000
-- [ ] Start with a small model to verify everything works:
-```bash
-docker exec -it ollama ollama pull llama3        # ~4GB, 8B model for testing
-docker exec -it ollama ollama run llama3
-```
-- [ ] Once confirmed working, pull the full model:
-```bash
-docker exec -it ollama ollama pull llama3:70b
-```
-- [ ] Test the local API:
-```bash
-curl http://localhost:11434/api/generate \
-  -d '{"model": "llama3:70b", "prompt": "Hello!", "stream": false}'
-```
+- [x] Open WebUI container running (http://jarvis:3000)
+- [x] gemma3:27b pulled and running
+- [x] Admin account created in Open WebUI
+- [x] System prompt set to inject current date (`Today's date is {{CURRENT_DATE}}.`)
+- [x] Model display name customized in Open WebUI (Workspace → Models)
+- [x] Additional user accounts created for family
+
+### LLM Notes
+- gemma3:27b chosen over llama3:70b — fits entirely in 24GB VRAM, faster responses for voice pipeline
+- 70B models at Q4 ~40GB would require CPU RAM offloading (slower) on a 24GB card
+- Sweet spot for this hardware is 27-32B models at Q4 quantization (~18-20GB VRAM)
+- System prompt lives at Admin Panel → Settings → Models → System Prompt
+- Model display name: edit the model in Workspace → Models → click the name to rename
 
 ### Phase 4 — Home Assistant
-- [x] Home Assistant container running (http://192.168.50.200:8123)
-- [ ] Complete initial HA setup and onboarding
+- [x] Home Assistant container running (http://jarvis:8123)
+- [x] Initial onboarding complete
+- [x] HACS installed (via `docker exec -it homeassistant bash -c "wget -O - https://get.hacs.xyz | bash -"`)
+- [x] Reolink cameras integrated
+- [x] Ecobee integrated via HomeKit Controller (workaround — Ecobee suspended API key issuance)
+- [x] Govee integrated — manual control working via HA panel
+- [x] Ollama connected as conversation agent using `qwen2.5:14b` (tools-compatible model)
+- [x] `qwen2.5:14b` pulled for HA conversation agent (tool/function calling support)
+- [ ] Expose Govee entities to Assist for voice control (blocked — entities not appearing in Expose list, need Developer Tools → States to debug entity types)
+- [ ] Enable Advanced Mode on profile to unlock Developer Tools
+- [ ] Confirm Govee entity types in Developer Tools → States (filter "govee")
+- [ ] Wire Ollama conversation agent to control exposed devices via Assist
+
+### Home Assistant Notes
+- Ecobee: use HomeKit Controller integration — API key program suspended by Ecobee
+- Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities aren't appearing in Expose list yet
+- HA conversation agent MUST use a tools-compatible model — gemma3:27b does NOT support tools and will error
+- Use `qwen2.5:14b` for HA (tools + conversation), keep `gemma3:27b` for Open WebUI general chat
+- Developer Tools only visible with Advanced Mode enabled (profile → scroll down → Advanced Mode)
 
 ### Phase 5 — NAS ✅ COMPLETE
 - [x] RAID 1 set up with mdadm on M.2 #2 and M.2 #3 (/dev/md0)
@@ -284,14 +299,24 @@ curl http://localhost:11434/api/generate \
 - All management via `\\192.168.50.200\Jarvis` from any device on the network
 
 ### Phase 6 — Voice Pipeline
-The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → Coqui TTS (voice) → Speaker**
+The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → TTS (voice) → Speaker**
 
-- [x] Whisper container running (port 10300)
-- [x] Coqui TTS container running (port 5002) — uses `tts-server` entrypoint with tacotron2-DDC model
+- [x] Whisper container running (port 10300) — Wyoming-compatible, works with HA directly
+- [x] Coqui TTS container running (port 5002) — ⚠️ HTTP server only, NOT Wyoming-compatible
+- [ ] Add `wyoming-openwakeword` container for wake word detection
+- [ ] Add `wyoming-piper` container as Wyoming-compatible TTS for HA integration
 - [ ] Install Wyoming protocol integration in Home Assistant
-- [ ] Connect Whisper and Coqui TTS to HA via Wyoming integration
-- [ ] Configure Ollama as the conversation agent in HA
+- [ ] Connect Whisper and Piper to HA via Wyoming integration
+- [ ] Confirm Ollama conversation agent is set to a tools-compatible model (qwen2.5:14b or llama3.1)
 - [ ] Test full voice pipeline end to end
+
+### Voice Pipeline Notes
+- HA's voice pipeline requires **Wyoming protocol** for STT and TTS — Coqui TTS in its current form cannot integrate with HA
+- `wyoming-piper` is the recommended Wyoming-native TTS and is actively maintained
+- `wyoming-openwakeword` handles wake word detection and is Wyoming-native
+- Coqui TTS (port 5002) can remain running for direct API use or future voice cloning — just not wired into HA's pipeline
+- HA runs in host network mode so it can reach Wyoming services on 192.168.50.200 directly
+- The HA conversation agent **must** use a model that supports tool/function calling (e.g. qwen2.5, llama3.1, mistral) — gemma3 does NOT support tools and cannot control devices
 
 ### Phase 7 — Voice Cloning (Coqui TTS)
 - [ ] Record or gather 3–10 minutes of clean audio from target voice
@@ -300,7 +325,12 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
   - Consistent volume
   - WAV format preferred
 - [ ] Follow Coqui TTS voice cloning documentation to train custom voice
-- [ ] Swap cloned voice into the HA TTS pipeline
+- [ ] Swap cloned voice into the pipeline
+
+### Voice Cloning Notes
+- ⚠️ Coqui TTS company shut down in 2024 — the `ghcr.io/coqui-ai/tts` image is community-maintained and may lose support over time
+- Voice cloning with Piper (the Wyoming-native alternative) is less straightforward — evaluate options when reaching this phase
+- Do not remove the Coqui container until a cloning solution is confirmed
 
 ### Phase 8 — Remote Access (HA Mobile App + NAS)
 Tailscale creates an encrypted private network between your devices. Your server never exposes ports to the public internet, but you can access everything as if you're on your home network from anywhere.
@@ -335,7 +365,7 @@ rclone runs directly on the OS (not in Docker) and syncs Google Drive to `/mnt/n
 ```bash
 sudo apt install rclone
 ```
-- [ ] Configure Google Drive remote (interactive):
+- [ ] Configure Google Drive remote — ⚠️ JARVIS is headless, browser auth won't work directly. Use `--auth-no-browser` flag and complete auth on another machine, or SSH tunnel the auth port:
 ```bash
 rclone config
 # Follow prompts: New remote → name it "gdrive" → Google Drive → authenticate via browser
