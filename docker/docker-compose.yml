@@ -29,14 +29,7 @@ services:
     networks:
       - backend
 
-  homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:stable
-    container_name: homeassistant
-    network_mode: host
-    volumes:
-      - /mnt/nas/docker/ha-config:/config
-    restart: unless-stopped
-    privileged: true
+  # homeassistant removed — too complex to manage via Docker, poor device integration UX
 
   whisper:
     image: rhasspy/wyoming-whisper

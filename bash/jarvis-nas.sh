@@ -19,6 +19,10 @@ sudo chown -R mkeph:"$GROUP" /mnt/nas
 sudo find /mnt/nas -type d -exec chmod 2775 {} \;
 sudo find /mnt/nas -type f -exec chmod 664 {} \;
 
+# Patch global settings to disable guest access
+sudo sed -i 's/map to guest = bad user/map to guest = never/' /etc/samba/smb.conf
+sudo sed -i 's/usershare allow guests = yes/usershare allow guests = no/' /etc/samba/smb.conf
+
 # Remove existing [jarvis] or [Jarvis] block from smb.conf if present
 sudo python3 -c "
 import re

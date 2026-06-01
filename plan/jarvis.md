@@ -41,11 +41,11 @@ Build a local, private home AI server that runs a large language model, integrat
 - [x] RAM set to static blue via OpenRGB (persistent via crontab)
 - [x] Corsair fans set to static blue via iCUE hardware lighting
 - [x] JARVIS racked and running headless
-- [ ] Apply Intel Baseline Profile in BIOS to protect CPU ⚠️ DO THIS BEFORE HEAVY USE
-- [ ] Install NVIDIA drivers (next step)
+- [x] Apply Intel Baseline Profile in BIOS to protect CPU
+- [x] Install NVIDIA drivers (v595.71.05, CUDA 13.2)
 - [ ] Run FurMark stress test 10-15 min after OS install, check 4090 power connector for excessive heat
-- [ ] GPU sag bracket recommended (4090 is ~2.2 lbs, 24/7 operation) — search "GPU support bracket heavy" on Amazon/Newegg
-- [ ] USB microphone + speaker (or dedicated voice satellite hardware)
+- [x] GPU sag bracket installed (4090 is ~2.2 lbs, 24/7 operation)
+- [x] Voice satellite hardware — see Drone below (Raspberry Pi 4 + ReSpeaker 2-Mic HAT + speaker)
 
 ### Hardware Notes
 - PSU is ATX 3.1 native — no 4090 power adapter needed, eliminates connector melting risk
@@ -194,11 +194,11 @@ Build a local, private home AI server that runs a large language model, integrat
 ### GUI Access (all from another device's browser — server stays headless)
 | Tool | URL |
 |---|---|
-| Portainer | http://192.168.50.200:9000 |
-| Home Assistant | http://192.168.50.200:8123 |
-| OctoPrint | http://192.168.50.200:5000 |
-| Nextcloud | http://192.168.50.200:8080 |
-| Open WebUI | http://192.168.50.200:3000 |
+| Portainer | http://jarvis:9000 |
+| Home Assistant | http://jarvis:8123 |
+| OctoPrint | http://jarvis:5000 |
+| Nextcloud | http://jarvis:8080 |
+| Open WebUI | http://jarvis:3000 |
 
 ---
 
@@ -267,7 +267,7 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] Initial onboarding complete
 - [x] HACS installed (via `docker exec -it homeassistant bash -c "wget -O - https://get.hacs.xyz | bash -"`)
 - [x] Reolink cameras integrated
-- [x] Ecobee integrated via HomeKit Controller (workaround — Ecobee suspended API key issuance)
+- [ ] ⚠️ Ecobee NOT working — HomeKit Controller integration attempted but Ecobee not being recognized by HA; may require full HA wipe and reinstall to resolve
 - [x] Govee integrated — manual control working via HA panel
 - [x] Ollama connected as conversation agent using `qwen2.5:14b` (tools-compatible model)
 - [x] `qwen2.5:14b` pulled for HA conversation agent (tool/function calling support)
@@ -277,7 +277,7 @@ docker exec -it <container_name> bash  # open shell inside container
 - [ ] Wire Ollama conversation agent to control exposed devices via Assist
 
 ### Home Assistant Notes
-- Ecobee: use HomeKit Controller integration — API key program suspended by Ecobee
+- Ecobee: ⚠️ HomeKit Controller attempted but Ecobee not recognized — Ecobee API key program suspended so native integration is unavailable; HomeKit Controller path is blocked too; may need to wipe HA container/config and start onboarding fresh to clear any bad integration state
 - Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities aren't appearing in Expose list yet
 - HA conversation agent MUST use a tools-compatible model — gemma3:27b does NOT support tools and will error
 - Use `qwen2.5:14b` for HA (tools + conversation), keep `gemma3:27b` for Open WebUI general chat
@@ -288,15 +288,23 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] Formatted ext4 and mounted at `/mnt/nas`
 - [x] Added to `/etc/fstab` for auto-mount on boot
 - [x] Samba installed and configured via `bash ~/code/jarvis/bash/jarvis-nas.sh`
-- [x] Share accessible at `\\192.168.50.200\Jarvis` (Windows) or `smb://192.168.50.200/Jarvis` (Mac/Linux)
-- [x] Shared Samba user created (`jarvis-share`) for family access — no system login rights
-- [x] `/mnt/nas` permissions set to `nobody:nogroup 777` for write access
+- [x] Share accessible at `\\jarvis\jarvis` (Windows) or `smb://jarvis/jarvis` (Mac/Linux)
+- [x] Group-based access control — `family` group owns `/mnt/nas`
+- [x] `/mnt/nas` permissions set to `mkeph:family 2775` (setgid — new files inherit group)
+- [x] smb.conf global guest access disabled (`map to guest = never`, `usershare allow guests = no`)
+- [x] Family members added via `bash ~/code/jarvis/bash/jarvis-nas-users.sh <username>`
 
 ### NAS Notes
-- Windows 10/11 blocks guest SMB by default — use a named Samba user instead of guest
-- To add or change the Samba user password: `sudo smbpasswd -a jarvis-share`
+- Share name is lowercase: `\\jarvis\jarvis`
+- Access requires a named Samba user — guest access is disabled globally in smb.conf
+- To add a family member: `bash ~/code/jarvis/bash/jarvis-nas-users.sh <username>` — creates a no-login Linux user, adds to `family` group, sets Samba password
+- To change a user's Samba password: `sudo smbpasswd <username>`
+- To list Samba users: `sudo pdbedit -L`
 - Container volumes live at `/mnt/nas/docker/` to keep the share root clean
-- All management via `\\192.168.50.200\Jarvis` from any device on the network
+- All management via `\\jarvis\jarvis` from any device on the network
+- Ubuntu default smb.conf has `map to guest = bad user` and `usershare allow guests = yes` — both must be patched to enforce authentication
+- Apple/iPad access: `fruit streams_xattr` VFS and `fruit:model = MacSamba` added to `[global]` in smb.conf for compatibility
+- iPad (Files app): connect via `smb://jarvis/jarvis` — the top-level server listing shows "read only" but the share itself is writable; navigate into the jarvis folder to confirm
 
 ### Phase 6 — Voice Pipeline
 The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → TTS (voice) → Speaker**
@@ -309,6 +317,20 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [ ] Connect Whisper and Piper to HA via Wyoming integration
 - [ ] Confirm Ollama conversation agent is set to a tools-compatible model (qwen2.5:14b or llama3.1)
 - [ ] Test full voice pipeline end to end
+
+### Drone — Voice Satellite(s)
+- Hardware: Raspberry Pi 4 + KEYESTUDIO ReSpeaker 2-Mic Pi HAT V1.0 + speaker (8ohm 3W JST-PH2.0, already plugged in)
+- Naming scheme: `drone1`, `drone2`, etc. — hostname and username match (e.g. hostname `drone1`, user `drone1`)
+- Password: cypher key "D"
+- [x] microSD card acquired
+- [x] USB microSD reader acquired
+- [x] Raspberry Pi OS Lite 64-bit flashed via Raspberry Pi Imager (hostname `drone1`, user `drone1`, SSH key from Melkhior)
+- [x] Pi boots successfully (solid red PWR, green ACT active during boot)
+- [ ] Resolve network issue — `drone1.local` not appearing in router client list; check router DHCP table tomorrow with micro-HDMI cable for console access
+- [ ] micro-HDMI to mini-HDMI cable ordered (arriving soon)
+- [ ] Install seeed-voicecard drivers for ReSpeaker HAT
+- [ ] Install wyoming-satellite + wyoming-openwakeword (wake word runs locally on Pi)
+- Wake word runs locally on Pi; STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (Piper)
 
 ### Voice Pipeline Notes
 - HA's voice pipeline requires **Wyoming protocol** for STT and TTS — Coqui TTS in its current form cannot integrate with HA
@@ -352,7 +374,7 @@ ls /dev/tty* | grep -i usb
 ```
 - [ ] Update `/dev/ttyUSB0` in docker-compose if the path differs
 - [ ] Start OctoPrint container: `bash ~/code/jarvis/bash/container.sh start octoprint`
-- [ ] Access at `http://192.168.50.200:5000` and complete initial setup
+- [ ] Access at `http://jarvis:5000` and complete initial setup
 - [ ] Connect OctoPrint to the printer (set baud rate and port in OctoPrint settings)
 - [ ] Optional: add a USB webcam for print monitoring
 
@@ -383,9 +405,9 @@ crontab -e
 #### Nextcloud
 - [x] Passwords set in `docker/docker-compose.yml`
 - [ ] Start Nextcloud: `bash ~/code/jarvis/bash/container.sh start nextcloud-db && bash ~/code/jarvis/bash/container.sh start nextcloud`
-- [ ] Access at `http://192.168.50.200:8080` and complete initial setup
+- [ ] Access at `http://jarvis:8080` and complete initial setup
 - [ ] In Nextcloud admin → External Storage → add `/mnt/gdrive` as a local external storage mount
-- [ ] Install Nextcloud desktop/mobile client on your devices and point it at `http://192.168.50.200:8080`
+- [ ] Install Nextcloud desktop/mobile client on your devices and point it at `http://jarvis:8080`
 
 #### Storage layout
 | Path | Contents |
@@ -429,6 +451,7 @@ crontab -e
 ---
 
 ## Notes & Reminders
+- Text editor: **vim** only — never nano
 - Server name: JARVIS
 - Static IP: 192.168.50.200
 - Network subnet: 192.168.50.x
