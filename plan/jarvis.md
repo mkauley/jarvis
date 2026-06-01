@@ -311,8 +311,8 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 
 - [x] Whisper container running (port 10300) — Wyoming-compatible, works with HA directly
 - [x] Coqui TTS container running (port 5002) — ⚠️ HTTP server only, NOT Wyoming-compatible
-- [ ] Add `wyoming-openwakeword` container for wake word detection
-- [ ] Add `wyoming-piper` container as Wyoming-compatible TTS for HA integration
+- [x] Add `wyoming-openwakeword` container for wake word detection (port 10400)
+- [x] Add `wyoming-piper` container as Wyoming-compatible TTS for HA integration (port 10200, voice: en_US-lessac-medium)
 - [ ] Install Wyoming protocol integration in Home Assistant
 - [ ] Connect Whisper and Piper to HA via Wyoming integration
 - [ ] Confirm Ollama conversation agent is set to a tools-compatible model (qwen2.5:14b or llama3.1)
@@ -330,7 +330,7 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [ ] micro-HDMI to mini-HDMI cable ordered (arriving soon)
 - [ ] Install seeed-voicecard drivers for ReSpeaker HAT
 - [ ] Install wyoming-satellite + wyoming-openwakeword (wake word runs locally on Pi)
-- Wake word runs locally on Pi; STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (Piper)
+- Wake word runs locally on Pi; STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (wyoming-piper, en_US-lessac-medium)
 
 ### Voice Pipeline Notes
 - HA's voice pipeline requires **Wyoming protocol** for STT and TTS — Coqui TTS in its current form cannot integrate with HA

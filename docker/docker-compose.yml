@@ -50,6 +50,29 @@ services:
     networks:
       - backend
 
+  wyoming-openwakeword:
+    image: rhasspy/wyoming-openwakeword
+    container_name: wyoming-openwakeword
+    restart: unless-stopped
+    ports:
+      - "10400:10400"
+    volumes:
+      - /mnt/nas/docker/openwakeword:/data
+    networks:
+      - backend
+
+  wyoming-piper:
+    image: rhasspy/wyoming-piper
+    container_name: wyoming-piper
+    restart: unless-stopped
+    ports:
+      - "10200:10200"
+    volumes:
+      - /mnt/nas/docker/piper:/data
+    command: --voice en_US-lessac-medium
+    networks:
+      - backend
+
   coqui-tts:
     image: ghcr.io/coqui-ai/tts
     container_name: coqui-tts
