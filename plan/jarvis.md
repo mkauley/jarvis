@@ -325,8 +325,9 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [x] Add `wyoming-openwakeword` container for wake word detection (port 10400)
 - [x] Add `wyoming-piper` container as Wyoming-compatible TTS for HA integration (port 10200, voice: en_US-lessac-medium) — defined in docker-compose, not yet started
 - [x] Whisper added to HA via Wyoming integration (JARVIS:10300)
-- [ ] Start wyoming-piper container on JARVIS (`docker compose up -d wyoming-piper`) then add to HA via Wyoming integration (JARVIS:10200)
-- [ ] Create voice assistant pipeline in HA (Settings → Voice Assistants) — Whisper STT + Piper TTS + Ollama qwen2.5:14b
+- [x] Start wyoming-piper container on JARVIS (`docker compose up -d wyoming-piper`) then add to HA via Wyoming integration (JARVIS:10200)
+- [x] Create voice assistant pipeline in HA (Settings → Voice Assistants) — Whisper STT + Piper TTS + Ollama conversation agent
+- [ ] Fix conversation agent language — qwen2.5:14b defaults to Chinese; create `jarvis-assistant` model via `bash ~/code/jarvis/bash/create-models.sh` on JARVIS, then switch pipeline to use it
 - [ ] Test full voice pipeline end to end
 
 ### Drone — Voice Satellite(s)
@@ -360,6 +361,8 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - The HA conversation agent **must** use a model that supports tool/function calling (e.g. qwen2.5, llama3.1, mistral) — gemma3 does NOT support tools and cannot control devices
 - seeed-voicecard on kernel 6.12: must use the `v6.12` branch of the HinTak fork (`git checkout v6.12`) — master branch fails to compile against kernel 6.12
 - wyoming-satellite 1.4.1+: `--stt-uri` and `--tts-uri` flags removed — HA handles routing to Whisper/Piper directly; satellite only needs `--wake-uri`
+- wyoming-satellite must use `network-online.target` (not `network.target`) in systemd — satellite starts before WiFi is ready otherwise and crashes with "Network is unreachable"
+- qwen2.5:14b defaults to responding in Chinese — use `jarvis-assistant` custom model (created via `bash ~/code/jarvis/bash/create-models.sh`) which has an English system prompt baked in
 
 ### Phase 7 — Voice Cloning (Coqui TTS)
 - [ ] Record or gather 3–10 minutes of clean audio from target voice

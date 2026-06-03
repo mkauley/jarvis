@@ -95,7 +95,8 @@ EOF
 [Unit]
 Description=Wyoming Satellite
 Wants=wyoming-openwakeword.service
-After=network.target wyoming-openwakeword.service
+After=network-online.target wyoming-openwakeword.service
+Wants=network-online.target
 
 [Service]
 Type=simple
