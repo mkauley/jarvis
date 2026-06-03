@@ -5,7 +5,7 @@
 set -euo pipefail
 
 echo "=== Creating jarvis-assistant model ==="
-ollama create jarvis-assistant -f - <<'EOF'
+/usr/local/bin/ollama create jarvis-assistant -f - <<'EOF'
 FROM qwen2.5:14b
 SYSTEM "You are JARVIS, a helpful home assistant. Always respond in English. Keep responses brief and conversational."
 EOF
