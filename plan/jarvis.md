@@ -53,6 +53,8 @@ Build a local, private home AI server that runs a large language model, integrat
 - CPU cooler mounting brackets must be oriented correctly or cooler rotates 90 degrees (learned this the hard way)
 - Network is on 192.168.50.x subnet (not 192.168.1.x)
 - JARVIS static IP set to 192.168.50.200 during OS install
+- WiFi SSIDs: R2-D2-Alpha (5GHz, primary), R2-D2-Beta (2.4GHz, primary), C-3PO-Alpha (5GHz, IoT), C-3PO-Beta (2.4GHz, IoT)
+- IoT devices (drone1, Ecobee, etc.) are on C-3PO SSIDs — "Allow Intranet Access" must be enabled on the router for these networks or LAN communication will be blocked
 - Corsair iCUE Link QX120 RGB fans controlled via OpenRGB (HID device, requires i2c-dev for full control)
 - Ubuntu 26.04 missing linux-modules-extra for kernel 7.0 — downgraded to 24.04 LTS for stability
 - OS updated to Ubuntu Server 24.04 LTS
@@ -267,7 +269,7 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] Initial onboarding complete
 - [x] HACS installed (via `docker exec -it homeassistant bash -c "wget -O - https://get.hacs.xyz | bash -"`)
 - [x] Reolink cameras integrated
-- [ ] ⚠️ Ecobee NOT working — HomeKit Controller integration attempted but Ecobee not being recognized by HA; may require full HA wipe and reinstall to resolve
+- [x] Ecobee integrated via HomeKit Controller — paired successfully; controllable via HA chat/Assist
 - [x] Govee integrated — manual control working via HA panel
 - [x] Ollama connected as conversation agent using `qwen2.5:14b` (tools-compatible model)
 - [x] `qwen2.5:14b` pulled for HA conversation agent (tool/function calling support)
@@ -276,12 +278,21 @@ docker exec -it <container_name> bash  # open shell inside container
 - [ ] Confirm Govee entity types in Developer Tools → States (filter "govee")
 - [ ] Wire Ollama conversation agent to control exposed devices via Assist
 
+#### Google Calendar Integration
+- [ ] Create OAuth 2.0 credential in Google Cloud Console (type: Web application)
+- [ ] Add Google Calendar integration in HA (Settings → Devices & Services → Google Calendar)
+- [ ] Complete OAuth flow — enable write scope to allow event creation
+- [ ] Test reading calendar events in HA
+- [ ] Test voice command to add event via Assist + Ollama (e.g. "Add dentist Friday at 3pm")
+- [ ] Tune Ollama system prompt if event parsing is inconsistent
+
 ### Home Assistant Notes
-- Ecobee: ⚠️ HomeKit Controller attempted but Ecobee not recognized — Ecobee API key program suspended so native integration is unavailable; HomeKit Controller path is blocked too; may need to wipe HA container/config and start onboarding fresh to clear any bad integration state
+- Ecobee: paired via HomeKit Controller; Ecobee native API is unavailable (program suspended) but HomeKit pairing works and device is controllable via Assist/chat
 - Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities aren't appearing in Expose list yet
 - HA conversation agent MUST use a tools-compatible model — gemma3:27b does NOT support tools and will error
 - Use `qwen2.5:14b` for HA (tools + conversation), keep `gemma3:27b` for Open WebUI general chat
 - Developer Tools only visible with Advanced Mode enabled (profile → scroll down → Advanced Mode)
+- Google Calendar: OAuth client must be type "Web application" — enable write scope during setup to allow `google_calendar.create_event` service calls; `qwen2.5:14b` handles natural language → structured event data via tool calling
 
 ### Phase 5 — NAS ✅ COMPLETE
 - [x] RAID 1 set up with mdadm on M.2 #2 and M.2 #3 (/dev/md0)
@@ -312,10 +323,10 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [x] Whisper container running (port 10300) — Wyoming-compatible, works with HA directly
 - [x] Coqui TTS container running (port 5002) — ⚠️ HTTP server only, NOT Wyoming-compatible
 - [x] Add `wyoming-openwakeword` container for wake word detection (port 10400)
-- [x] Add `wyoming-piper` container as Wyoming-compatible TTS for HA integration (port 10200, voice: en_US-lessac-medium)
-- [ ] Install Wyoming protocol integration in Home Assistant
-- [ ] Connect Whisper and Piper to HA via Wyoming integration
-- [ ] Confirm Ollama conversation agent is set to a tools-compatible model (qwen2.5:14b or llama3.1)
+- [x] Add `wyoming-piper` container as Wyoming-compatible TTS for HA integration (port 10200, voice: en_US-lessac-medium) — defined in docker-compose, not yet started
+- [x] Whisper added to HA via Wyoming integration (JARVIS:10300)
+- [ ] Start wyoming-piper container on JARVIS (`docker compose up -d wyoming-piper`) then add to HA via Wyoming integration (JARVIS:10200)
+- [ ] Create voice assistant pipeline in HA (Settings → Voice Assistants) — Whisper STT + Piper TTS + Ollama qwen2.5:14b
 - [ ] Test full voice pipeline end to end
 
 ### Drone — Voice Satellite(s)
@@ -326,19 +337,29 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [x] USB microSD reader acquired
 - [x] Raspberry Pi OS Lite 64-bit flashed via Raspberry Pi Imager (hostname `drone1`, user `drone1`, SSH key from Melkhior)
 - [x] Pi boots successfully (solid red PWR, green ACT active during boot)
-- [ ] Resolve network issue — `drone1.local` not appearing in router client list; check router DHCP table tomorrow with micro-HDMI cable for console access
-- [ ] micro-HDMI to mini-HDMI cable ordered (arriving soon)
-- [ ] Install seeed-voicecard drivers for ReSpeaker HAT
-- [ ] Install wyoming-satellite + wyoming-openwakeword (wake word runs locally on Pi)
-- Wake word runs locally on Pi; STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (wyoming-piper, en_US-lessac-medium)
+- [x] Resolve network issue — root cause: drone1 was on C-3PO-Beta (2.4GHz IoT SSID); "Allow Intranet Access" was disabled for that network on the ASUS router; enabling it restored LAN connectivity
+- [x] drone1 pinging JARVIS and all LAN devices successfully
+- [x] drone1 static IP via DHCP reservation on router (192.168.50.204)
+- [x] Install seeed-voicecard drivers + wyoming-satellite + wyoming-openwakeword via `bash ~/code/jarvis/bash/drone-setup.sh` (phase 1 → reboot → phase 2)
+- [x] drone1 added to HA via Wyoming Protocol (auto-discovered via zeroconf, port 10700)
+- Wake word: `hey_jarvis` (runs locally on Pi); STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (wyoming-piper, en_US-lessac-medium)
+
+### Future Drone Nodes
+- Stick with Pi 4 for additional drones — ReSpeaker 2-Mic HAT driver support is mature on Pi 4
+- Pi 5 + ReSpeaker HAT is problematic — Pi 5 changed its I2S audio architecture, seeed-voicecard driver support is incomplete
+- If using Pi 5 in the future, use a USB audio adapter instead — no driver issues, fully supported, often cheaper
+- Pi 5 1GB is otherwise viable for the workload (wyoming-satellite + openwakeword runs well under 300MB)
 
 ### Voice Pipeline Notes
 - HA's voice pipeline requires **Wyoming protocol** for STT and TTS — Coqui TTS in its current form cannot integrate with HA
 - `wyoming-piper` is the recommended Wyoming-native TTS and is actively maintained
 - `wyoming-openwakeword` handles wake word detection and is Wyoming-native
 - Coqui TTS (port 5002) can remain running for direct API use or future voice cloning — just not wired into HA's pipeline
+- Wake word is `hey_jarvis` — a supported openWakeWord model, runs locally on the Pi
 - HA runs in host network mode so it can reach Wyoming services on 192.168.50.200 directly
 - The HA conversation agent **must** use a model that supports tool/function calling (e.g. qwen2.5, llama3.1, mistral) — gemma3 does NOT support tools and cannot control devices
+- seeed-voicecard on kernel 6.12: must use the `v6.12` branch of the HinTak fork (`git checkout v6.12`) — master branch fails to compile against kernel 6.12
+- wyoming-satellite 1.4.1+: `--stt-uri` and `--tts-uri` flags removed — HA handles routing to Whisper/Piper directly; satellite only needs `--wake-uri`
 
 ### Phase 7 — Voice Cloning (Coqui TTS)
 - [ ] Record or gather 3–10 minutes of clean audio from target voice
