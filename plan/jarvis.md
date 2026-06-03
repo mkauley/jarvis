@@ -327,8 +327,8 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [x] Whisper added to HA via Wyoming integration (JARVIS:10300)
 - [x] Start wyoming-piper container on JARVIS (`docker compose up -d wyoming-piper`) then add to HA via Wyoming integration (JARVIS:10200)
 - [x] Create voice assistant pipeline in HA (Settings → Voice Assistants) — Whisper STT + Piper TTS + Ollama conversation agent
-- [ ] Fix conversation agent language — qwen2.5:14b defaults to Chinese; create `jarvis-assistant` model via `bash ~/code/jarvis/bash/create-models.sh` on JARVIS, then switch pipeline to use it
-- [ ] Test full voice pipeline end to end
+- [x] Fix conversation agent language — created `jarvis-assistant` custom model via `bash ~/code/jarvis/bash/create-models.sh`; system prompt forces English and suppresses reasoning verbalization
+- [x] Test full voice pipeline end to end — wake word, STT, Ollama, TTS, speaker all working; thermostat control via voice confirmed
 
 ### Drone — Voice Satellite(s)
 - Hardware: Raspberry Pi 4 + KEYESTUDIO ReSpeaker 2-Mic Pi HAT V1.0 + speaker (8ohm 3W JST-PH2.0, already plugged in)
@@ -362,7 +362,16 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - seeed-voicecard on kernel 6.12: must use the `v6.12` branch of the HinTak fork (`git checkout v6.12`) — master branch fails to compile against kernel 6.12
 - wyoming-satellite 1.4.1+: `--stt-uri` and `--tts-uri` flags removed — HA handles routing to Whisper/Piper directly; satellite only needs `--wake-uri`
 - wyoming-satellite must use `network-online.target` (not `network.target`) in systemd — satellite starts before WiFi is ready otherwise and crashes with "Network is unreachable"
-- qwen2.5:14b defaults to responding in Chinese — use `jarvis-assistant` custom model (created via `bash ~/code/jarvis/bash/create-models.sh`) which has an English system prompt baked in
+- qwen2.5:14b defaults to responding in Chinese — use `jarvis-assistant` custom model (created via `bash ~/code/jarvis/bash/create-models.sh`) which has an English system prompt baked in; also suppresses chain-of-thought verbalization
+- "Think before responding" in HA voice assistant causes the model to speak its reasoning aloud — keep it off; instead the system prompt instructs the model to only speak the final answer
+- For real-time data (weather, etc.) a weather integration needs to be added to HA and exposed to the assistant — model has no live data access on its own
+- To update `jarvis-assistant`: `ssh jarvis docker exec ollama ollama rm jarvis-assistant` then rerun `create-models.sh`
+
+### Phase 6b — Voice Training (Wake Word)
+- [ ] Train a custom wake word model to replace `hey_jarvis` with a personalized wake word
+- [ ] Record ~100 positive samples ("hey jarvis" or custom phrase) and ~100 negative samples
+- [ ] Train using openWakeWord training pipeline or a custom model via the wyoming-openwakeword tooling
+- [ ] Deploy new model to drone1 and update `--wake-word-name` in wyoming-satellite service
 
 ### Phase 7 — Voice Cloning (Coqui TTS)
 - [ ] Record or gather 3–10 minutes of clean audio from target voice
@@ -391,16 +400,24 @@ sudo tailscale up
 - [ ] Access NAS shares via Tailscale IP from any device (same as local access, just through Tailscale)
 
 ### Phase 9 — 3D Printer (OctoPrint)
+- [ ] Identify printer model and confirm USB cable compatibility
 - [ ] Connect 3D printer to JARVIS via USB cable
 - [ ] Identify the USB device path:
 ```bash
 ls /dev/tty* | grep -i usb
 ```
-- [ ] Update `/dev/ttyUSB0` in docker-compose if the path differs
+- [ ] Uncomment octoprint service in docker-compose and update `/dev/ttyUSB0` if the path differs
 - [ ] Start OctoPrint container: `bash ~/code/jarvis/bash/container.sh start octoprint`
-- [ ] Access at `http://jarvis:5000` and complete initial setup
+- [ ] Access at `http://jarvis:5000` and complete initial setup wizard
 - [ ] Connect OctoPrint to the printer (set baud rate and port in OctoPrint settings)
+- [ ] Configure printer profile (bed size, extruder, etc.)
+- [ ] Test print to confirm connection
 - [ ] Optional: add a USB webcam for print monitoring
+- [ ] Optional: integrate OctoPrint with Home Assistant for print status in dashboard
+
+### OctoPrint Notes
+- ⚠️ OctoPrint service is commented out in docker-compose until printer is connected — uncomment before starting
+- USB device path may vary — always verify with `ls /dev/tty*` before starting the container
 
 ### Phase 10 — File Sync (Nextcloud + rclone)
 
