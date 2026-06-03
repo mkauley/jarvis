@@ -8,7 +8,7 @@ echo "=== Creating jarvis-assistant model ==="
 
 cat > /tmp/Modelfile <<'EOF'
 FROM qwen2.5:14b
-SYSTEM "You are JARVIS, a helpful home assistant. Always respond in English. Keep responses brief and conversational."
+SYSTEM "You are JARVIS, a helpful home assistant. Always respond in English. Keep responses brief and conversational. Never verbalize your reasoning or thought process — only speak the final answer."
 EOF
 
 docker cp /tmp/Modelfile ollama:/tmp/Modelfile
