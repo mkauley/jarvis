@@ -343,6 +343,8 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [x] drone1 static IP via DHCP reservation on router (192.168.50.204)
 - [x] Install seeed-voicecard drivers + wyoming-satellite + wyoming-openwakeword via `bash ~/code/jarvis/bash/drone-setup.sh` (phase 1 → reboot → phase 2)
 - [x] drone1 added to HA via Wyoming Protocol (auto-discovered via zeroconf, port 10700)
+- [ ] Apply conversational context fix to drone1 — edit `/etc/systemd/system/wyoming-satellite.service`, add `--conversation-id drone1` to the `ExecStart` line, then `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite` (already patched in `drone-setup.sh` for future drones)
+- [ ] Apply LED feedback to drone1 — (1) `scp ~/code/jarvis/drone/led.py drone1:~/drone/led.py`, (2) enable SPI: `echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt && sudo reboot`, (3) install deps: `~/wyoming-satellite/.venv/bin/pip install spidev pixel-ring`, (4) add the four event hook flags to `/etc/systemd/system/wyoming-satellite.service` and `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite` (already patched in `drone-setup.sh` for future drones)
 - Wake word: `hey_jarvis` (runs locally on Pi); STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (wyoming-piper, en_US-lessac-medium)
 
 ### Future Drone Nodes
@@ -400,6 +402,7 @@ sudo tailscale up
 - [ ] Access NAS shares via Tailscale IP from any device (same as local access, just through Tailscale)
 
 ### Phase 9 — 3D Printer (OctoPrint)
+- [ ] Plug Prusa MK3S+ into JARVIS via USB and run `ls /dev/tty*` to confirm device path — likely `/dev/ttyACM0` (not `/dev/ttyUSB0`); update docker-compose octoprint `devices:` entry accordingly before starting the container
 - [ ] Identify printer model and confirm USB cable compatibility
 - [ ] Connect 3D printer to JARVIS via USB cable
 - [ ] Identify the USB device path:
@@ -488,6 +491,14 @@ crontab -e
 11. Swap to 70B model once everything is stable
 12. Do voice cloning with Coqui TTS
 13. Explore RAG and fine-tuning as curiosity develops
+
+---
+
+## Useful Tools & Bookmarks
+
+| Tool | URL | Purpose |
+|---|---|---|
+| EZRip | https://ezrip.net | Extract MP3 audio from YouTube videos |
 
 ---
 

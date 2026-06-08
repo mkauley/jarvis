@@ -47,6 +47,11 @@ if [ "$phase" = "2" ]; then
     sudo apt-get update
     sudo apt-get install -y python3-venv python3-pip libopenblas-dev
 
+    # Enable SPI for ReSpeaker LED ring (APA102 via spidev)
+    if ! grep -q "^dtparam=spi=on" /boot/firmware/config.txt 2>/dev/null; then
+        echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt
+    fi
+
     # Verify audio card is present before continuing
     if ! arecord -l 2>/dev/null | grep -q "seeed2micvoicec"; then
         echo "ERROR: ReSpeaker card (seeed2micvoicec) not found."
@@ -54,6 +59,16 @@ if [ "$phase" = "2" ]; then
         echo "Run: arecord -l"
         exit 1
     fi
+
+    # LED control script — scp drone/led.py from the jarvis repo before running phase 2:
+    #   scp ~/code/jarvis/drone/led.py drone1:~/drone/led.py
+    mkdir -p "$HOME/drone"
+    if [ ! -f "$HOME/drone/led.py" ]; then
+        echo "ERROR: ~/drone/led.py not found on this machine."
+        echo "Copy it over first: scp ~/code/jarvis/drone/led.py drone1:~/drone/led.py"
+        exit 1
+    fi
+    chmod +x "$HOME/drone/led.py"
 
     # wyoming-openwakeword
     cd "$HOME"
@@ -70,6 +85,7 @@ if [ "$phase" = "2" ]; then
     python3 -m venv .venv
     .venv/bin/pip install --upgrade pip
     .venv/bin/pip install -e .
+    .venv/bin/pip install spidev pixel-ring
 
     # ── systemd: wyoming-openwakeword ─────────────────────────────────────────
     sudo tee /etc/systemd/system/wyoming-openwakeword.service > /dev/null <<EOF
@@ -108,7 +124,12 @@ ExecStart=$HOME/wyoming-satellite/.venv/bin/python -m wyoming_satellite \\
     --mic-command "arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S16_LE -t raw" \\
     --snd-command "aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw" \\
     --wake-uri tcp://127.0.0.1:$WAKE_PORT \\
-    --wake-word-name "$WAKE_WORD"
+    --wake-word-name "$WAKE_WORD" \\
+    --conversation-id "$HOSTNAME" \\
+    --detection-command "$HOME/wyoming-satellite/.venv/bin/python $HOME/drone/led.py listen" \\
+    --transcript-command "$HOME/wyoming-satellite/.venv/bin/python $HOME/drone/led.py think" \\
+    --tts-start-command "$HOME/wyoming-satellite/.venv/bin/python $HOME/drone/led.py speak" \\
+    --tts-stop-command "$HOME/wyoming-satellite/.venv/bin/python $HOME/drone/led.py off"
 Restart=always
 RestartSec=5
 
