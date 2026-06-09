@@ -494,7 +494,7 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - [x] Set `OLLAMA_KEEP_ALIVE=0` in Ollama container environment in docker-compose
 - [x] Create `bash/fooocus-up.sh` — stops Ollama, starts Fooocus
 - [x] Create `bash/fooocus-down.sh` — stops Fooocus, starts Ollama
-- [ ] On JARVIS: pull the image: `docker pull lllyasviel/fooocus`
+- [ ] On JARVIS: pull the image: `docker pull ghcr.io/lllyasviel/fooocus`
 - [ ] Test spin-up: `bash ~/code/jarvis/bash/fooocus-up.sh`
 - [ ] Access at `http://jarvis:7865` and confirm GPU is being used (`nvidia-smi`)
 - [ ] Verify model volume paths are correct inside container (check `/content/app/models` exists)
