@@ -19,6 +19,8 @@ services:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=0
     deploy:
       resources:
         reservations:
@@ -92,6 +94,25 @@ services:
               capabilities: [gpu]
     networks:
       - backend
+
+#  fooocus:
+#    image: lllyasviel/fooocus
+#    container_name: fooocus
+#    restart: no
+#    ports:
+#      - "7865:7865"
+#    volumes:
+#      - /mnt/nas/docker/fooocus/models:/content/app/models
+#      - /mnt/nas/docker/fooocus/outputs:/content/app/outputs
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: all
+#              capabilities: [gpu]
+#    networks:
+#      - backend
 
 #  octoprint:
 #    image: octoprint/octoprint

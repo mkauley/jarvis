@@ -168,6 +168,30 @@ Build a local, private home AI server that runs a large language model, integrat
 
 ---
 
+## Machines on the Network
+
+| Hostname | Role | OS | IP |
+|---|---|---|---|
+| JARVIS | Home AI server (headless) | Ubuntu Server 24.04 LTS | 192.168.50.200 (static) |
+| Melkhior | Workstation / primary client | — | — |
+| chopper | Desktop workstation | Nobara Linux 43 | — |
+| drone1 | Voice satellite | Raspberry Pi OS Lite 64-bit | 192.168.50.204 (static via DHCP reservation) |
+
+### JARVIS Users
+
+| User | Role | Groups |
+|---|---|---|
+| mkeph | Primary admin | docker, family |
+| joe | Admin | docker |
+| tessa | NAS user | family |
+| jeph | NAS user | family |
+| ipad | NAS user | family |
+
+### Chopper — Desktop (Nobara Linux 43) ✅ COMPLETE
+- [x] Nobara Linux 43 installed
+
+---
+
 ## Target Stack
 
 | Layer | Tool |
@@ -185,6 +209,7 @@ Build a local, private home AI server that runs a large language model, integrat
 | 3D printer control | OctoPrint (USB connected) |
 | File sync | Nextcloud + rclone (Google Drive mirror) |
 | LLM chat UI | Open WebUI |
+| Image generation | Fooocus (Stable Diffusion, on-demand) |
 
 ### VRAM Allocation
 | Service | Estimated VRAM |
@@ -192,6 +217,7 @@ Build a local, private home AI server that runs a large language model, integrat
 | Llama 3 70B | ~20GB |
 | Coqui TTS | ~2-3GB |
 | Total | ~22-23GB (fits within 24GB) |
+| Fooocus (SDXL, on-demand) | ~6-12GB — not concurrent with Ollama; time-share the GPU |
 
 ### GUI Access (all from another device's browser — server stays headless)
 | Tool | URL |
@@ -201,6 +227,7 @@ Build a local, private home AI server that runs a large language model, integrat
 | OctoPrint | http://jarvis:5000 |
 | Nextcloud | http://jarvis:8080 |
 | Open WebUI | http://jarvis:3000 |
+| Fooocus | http://jarvis:7865 (on-demand — start/stop via container.sh) |
 
 ---
 
@@ -460,6 +487,46 @@ crontab -e
 | `/mnt/nas/nextcloud-db` | Nextcloud MariaDB database |
 | `/mnt/nas/gdrive` | rclone Google Drive mirror (one copy, surfaced in Nextcloud via external storage) |
 
+### Phase 11 — Image Generation (Fooocus)
+Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for VRAM, so it runs on-demand — brought up when needed, torn down when done. Set `OLLAMA_KEEP_ALIVE=0` so Ollama unloads its model immediately after each request, freeing VRAM before Fooocus starts.
+
+- [x] Add Fooocus service to `docker/docker-compose.yml` (commented out by default)
+- [x] Set `OLLAMA_KEEP_ALIVE=0` in Ollama container environment in docker-compose
+- [x] Create `bash/fooocus-up.sh` — stops Ollama, starts Fooocus
+- [x] Create `bash/fooocus-down.sh` — stops Fooocus, starts Ollama
+- [ ] On JARVIS: pull the image: `docker pull lllyasviel/fooocus`
+- [ ] Test spin-up: `bash ~/code/jarvis/bash/fooocus-up.sh`
+- [ ] Access at `http://jarvis:7865` and confirm GPU is being used (`nvidia-smi`)
+- [ ] Verify model volume paths are correct inside container (check `/content/app/models` exists)
+- [ ] Test spin-down: `bash ~/code/jarvis/bash/fooocus-down.sh` — confirm Ollama restores
+
+### Fooocus Notes
+- ⚠️ Fooocus service is commented out in docker-compose — start on demand only
+- Fooocus (SDXL) needs ~6-12GB VRAM; gemma3:27b needs ~18-20GB — cannot run concurrently
+- To check VRAM usage before starting Fooocus: `ssh jarvis nvidia-smi`
+
+#### GPU Time-Sharing Options
+
+**Option A — OLLAMA_KEEP_ALIVE=0 (soft, elegant)**
+- Set `OLLAMA_KEEP_ALIVE=0` in Ollama's docker-compose environment
+- Ollama unloads its model from VRAM immediately after each request (default is 5 min)
+- Fooocus can start and grab free VRAM without stopping Ollama
+- Ollama container stays running — reloads model on next request (adds a few seconds)
+- Best for: casual use, don't need guaranteed full 24GB for Fooocus
+
+**Option B — Hard stop/start scripts (explicit, guaranteed)**
+- Two wrapper scripts: `fooocus-up.sh` (stops Ollama, starts Fooocus) and `fooocus-down.sh` (stops Fooocus, starts Ollama)
+- Ollama container is fully stopped — full 24GB guaranteed free for Fooocus
+- Fooocus takes 30-60s to load model into VRAM on first generation
+- Ollama takes a few seconds to reload on first request after switching back
+- Best for: high-res generation, want certainty, don't need Ollama available while generating
+
+**Option C — Combine both ✅ CHOSEN**
+- Set `OLLAMA_KEEP_ALIVE=0` as baseline (Ollama idles without holding VRAM)
+- `bash ~/code/jarvis/bash/fooocus-up.sh` — stops Ollama hard, starts Fooocus (guaranteed full VRAM)
+- `bash ~/code/jarvis/bash/fooocus-down.sh` — stops Fooocus, restores Ollama
+- Most flexible — soft mode for casual use, hard switch available when needed
+
 ---
 
 ## Key Concepts Learned in This Project
@@ -506,6 +573,7 @@ crontab -e
 - Text editor: **vim** only — never nano
 - Server name: JARVIS
 - Static IP: 192.168.50.200
+- mkeph password on JARVIS: cypher key "A"
 - Network subnet: 192.168.50.x
 - Server is fully headless after initial Ubuntu install — monitor/keyboard not needed after that
 - All management via SSH or browser-based UIs from another device
