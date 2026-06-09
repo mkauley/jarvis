@@ -300,6 +300,9 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] Govee integrated — manual control working via HA panel
 - [x] Ollama connected as conversation agent using `qwen2.5:14b` (tools-compatible model)
 - [x] `qwen2.5:14b` pulled for HA conversation agent (tool/function calling support)
+- [x] Router "Allow Intranet Access" enabled for IoT SSIDs — resolves device visibility issues
+- [ ] Bring HA back into docker-compose management — run `docker inspect homeassistant` to capture current config, then add service to docker-compose.yml
+- [ ] Stop and remove the orphan homeassistant container, restart via compose
 - [ ] Expose Govee entities to Assist for voice control (blocked — entities not appearing in Expose list, need Developer Tools → States to debug entity types)
 - [ ] Enable Advanced Mode on profile to unlock Developer Tools
 - [ ] Confirm Govee entity types in Developer Tools → States (filter "govee")
@@ -314,6 +317,8 @@ docker exec -it <container_name> bash  # open shell inside container
 - [ ] Tune Ollama system prompt if event parsing is inconsistent
 
 ### Home Assistant Notes
+- HA is currently running as an unmanaged orphan container (`ghcr.io/home-assistant/home-assistant:stable`) — not in docker-compose yet; needs to be brought back in
+- Original reason for removing from compose was frustration with devices not appearing — root cause was router "Allow Intranet Access" disabled on IoT SSIDs (C-3PO-Alpha/Beta), not a Docker issue
 - Ecobee: paired via HomeKit Controller; Ecobee native API is unavailable (program suspended) but HomeKit pairing works and device is controllable via Assist/chat
 - Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities aren't appearing in Expose list yet
 - HA conversation agent MUST use a tools-compatible model — gemma3:27b does NOT support tools and will error
@@ -494,15 +499,19 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - [x] Set `OLLAMA_KEEP_ALIVE=0` in Ollama container environment in docker-compose
 - [x] Create `bash/fooocus-up.sh` — stops Ollama, starts Fooocus
 - [x] Create `bash/fooocus-down.sh` — stops Fooocus, starts Ollama
-- [ ] On JARVIS: pull the image: `docker pull ghcr.io/lllyasviel/fooocus`
-- [ ] Test spin-up: `bash ~/code/jarvis/bash/fooocus-up.sh`
-- [ ] Access at `http://jarvis:7865` and confirm GPU is being used (`nvidia-smi`)
-- [ ] Verify model volume paths are correct inside container (check `/content/app/models` exists)
-- [ ] Test spin-down: `bash ~/code/jarvis/bash/fooocus-down.sh` — confirm Ollama restores
+- [x] On JARVIS: pull the image: `docker pull ghcr.io/lllyasviel/fooocus`
+- [x] Fix bind mount permissions: `sudo mkdir -p /mnt/nas/docker/fooocus/models /mnt/nas/docker/fooocus/outputs && sudo chmod 777 /mnt/nas/docker/fooocus/models /mnt/nas/docker/fooocus/outputs`
+- [x] Test spin-up: `bash ~/code/jarvis/bash/fooocus-up.sh` — working
+- [x] Test spin-down: `bash ~/code/jarvis/bash/fooocus-down.sh` — Ollama restores
+- [ ] Enable NSFW/adult content in Fooocus UI settings
+- [ ] Test image generation with GPU confirmed via `nvidia-smi`
 
 ### Fooocus Notes
-- ⚠️ Fooocus service is commented out in docker-compose — start on demand only
+- Fooocus runs on-demand via `fooocus-up.sh` / `fooocus-down.sh` — not a persistent service
+- Correct image: `ghcr.io/lllyasviel/fooocus` (not Docker Hub — image doesn't exist there)
+- Bind mount dirs must be pre-created with 777 permissions or container exits with permission errors
 - Fooocus (SDXL) needs ~6-12GB VRAM; gemma3:27b needs ~18-20GB — cannot run concurrently
+- To enable adult content: Advanced tab in the Fooocus UI → disable safety filter
 - To check VRAM usage before starting Fooocus: `ssh jarvis nvidia-smi`
 
 #### GPU Time-Sharing Options
