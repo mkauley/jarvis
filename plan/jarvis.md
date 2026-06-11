@@ -308,6 +308,11 @@ docker exec -it <container_name> bash  # open shell inside container
 - [ ] Confirm Govee entity types in Developer Tools → States (filter "govee")
 - [ ] Wire Ollama conversation agent to control exposed devices via Assist
 
+#### Local Weather
+- [ ] Add Met.no integration in HA (Settings → Devices & Services → Add Integration → "Met.no") — no API key required, uses home coordinates set during onboarding
+- [ ] Expose the weather entity to the Ollama conversation agent
+- [ ] Test voice query: "What's the weather like?" / "Do I need an umbrella today?"
+
 #### Google Calendar Integration
 - [ ] Create OAuth 2.0 credential in Google Cloud Console (type: Web application)
 - [ ] Add Google Calendar integration in HA (Settings → Devices & Services → Google Calendar)
@@ -402,10 +407,7 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - To update `jarvis-assistant`: `ssh jarvis docker exec ollama ollama rm jarvis-assistant` then rerun `create-models.sh`
 
 ### Phase 6b — Voice Training (Wake Word)
-- [ ] Train a custom wake word model to replace `hey_jarvis` with a personalized wake word
-- [ ] Record ~100 positive samples ("hey jarvis" or custom phrase) and ~100 negative samples
-- [ ] Train using openWakeWord training pipeline or a custom model via the wyoming-openwakeword tooling
-- [ ] Deploy new model to drone1 and update `--wake-word-name` in wyoming-satellite service
+~~Custom wake word training not needed — pre-built `hey_jarvis` model is sufficient.~~
 
 ### Phase 7 — Voice Cloning (Coqui TTS)
 - [ ] Record or gather 3–10 minutes of clean audio from target voice
@@ -503,8 +505,8 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - [x] Fix bind mount permissions: `sudo mkdir -p /mnt/nas/docker/fooocus/models /mnt/nas/docker/fooocus/outputs && sudo chmod 777 /mnt/nas/docker/fooocus/models /mnt/nas/docker/fooocus/outputs`
 - [x] Test spin-up: `bash ~/code/jarvis/bash/fooocus-up.sh` — working
 - [x] Test spin-down: `bash ~/code/jarvis/bash/fooocus-down.sh` — Ollama restores
-- [ ] Enable NSFW/adult content in Fooocus UI settings
-- [ ] Test image generation with GPU confirmed via `nvidia-smi`
+- [x] Enable NSFW/adult content in Fooocus UI settings
+- [x] Test image generation with GPU confirmed via `nvidia-smi`
 
 ### Fooocus Notes
 - Fooocus runs on-demand via `fooocus-up.sh` / `fooocus-down.sh` — not a persistent service
@@ -535,6 +537,49 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - `bash ~/code/jarvis/bash/fooocus-up.sh` — stops Ollama hard, starts Fooocus (guaranteed full VRAM)
 - `bash ~/code/jarvis/bash/fooocus-down.sh` — stops Fooocus, restores Ollama
 - Most flexible — soft mode for casual use, hard switch available when needed
+
+### Phase 12 — World of Darkness RAG (AI Lore Assistant)
+Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector database, then wires it to a dedicated Ollama persona in Open WebUI. The model will retrieve relevant passages at query time and answer questions grounded in the actual source material.
+
+**Depends on:** External PDF-to-text conversion project (WoD books → plain text files)
+
+#### Step 1 — Corpus Preparation
+- [ ] Confirm output format from the PDF conversion project (plain `.txt` files, one per book, or chunked JSON)
+- [ ] Decide on storage location: `/mnt/nas/wod/corpus/` — one file per book
+- [ ] Review a few converted files for quality — check for garbled OCR, missing text, encoding issues
+
+#### Step 2 — Vector Database
+- [ ] Add ChromaDB service to `docker/docker-compose.yml` (persistent volume at `/mnt/nas/docker/chromadb`)
+- [ ] Start ChromaDB: `docker compose up -d chromadb`
+- [ ] Confirm ChromaDB is accessible at `http://jarvis:8000`
+
+#### Step 3 — Embedding the Corpus
+- [ ] Write `bash/wod-ingest.py` — reads corpus files, chunks text (~500 tokens with overlap), embeds via Ollama (`nomic-embed-text` model), stores in ChromaDB collection `wod`
+- [ ] Pull embedding model: `docker exec ollama ollama pull nomic-embed-text`
+- [ ] Run ingestion: `python ~/code/jarvis/bash/wod-ingest.py` — expect this to take a while on first run
+- [ ] Verify collection populated: query ChromaDB for a known term and confirm results return
+
+#### Step 4 — Open WebUI RAG Integration
+- [ ] In Open WebUI: Admin Panel → Documents → add ChromaDB as the vector store backend
+- [ ] Upload or point Open WebUI at the corpus directory for indexing (alternatively, ingestion script handles this directly)
+- [ ] Create a new model in Open WebUI Workspace → Models: `wod-lore`
+  - Base model: `gemma3:27b` (or `qwen2.5:14b` if tool calling needed)
+  - System prompt: instructs the model to answer as a WoD lore authority, cite source books when possible, stay in-universe
+  - Enable RAG on this model, pointed at the `wod` ChromaDB collection
+
+#### Step 5 — Testing
+- [ ] Test factual recall: ask about specific clans, disciplines, lore — verify answers match source material
+- [ ] Test citation behavior: confirm model references book names when relevant
+- [ ] Test edge cases: questions spanning multiple books, contradictions between editions
+
+### WoD RAG Notes
+- RAG chosen over fine-tuning: keeps answers grounded in actual source text, no weight retraining required, easy to update when new books are added
+- ChromaDB is the simplest self-hosted vector DB — no auth required for local use, persistent storage via bind mount
+- `nomic-embed-text` is the recommended embedding model for Ollama RAG — fast, good quality, small footprint
+- Chunk size ~500 tokens with ~50 token overlap is a good starting point; tune if retrieval quality is poor
+- Open WebUI has native RAG support but its built-in document pipeline may conflict with a custom ChromaDB ingest — evaluate both paths
+- When adding new books: re-run `wod-ingest.py` with just the new files; ChromaDB supports incremental upserts
+- Keep the `wod` ChromaDB collection separate from any other RAG collections to avoid cross-contamination
 
 ---
 
