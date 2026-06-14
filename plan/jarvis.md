@@ -173,7 +173,7 @@ Build a local, private home AI server that runs a large language model, integrat
 | Hostname | Role | OS | IP |
 |---|---|---|---|
 | JARVIS | Home AI server (headless) | Ubuntu Server 24.04 LTS | 192.168.50.200 (static) |
-| Melkhior | Workstation / primary client | — | — |
+| Melkhior | Workstation / primary client | Linux Mint (Cinnamon) | Dynamic |
 | chopper | Desktop workstation | Nobara Linux 43 | — |
 | drone1 | Voice satellite | Raspberry Pi OS Lite 64-bit | 192.168.50.204 (static via DHCP reservation) |
 
@@ -341,6 +341,9 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] `/mnt/nas` permissions set to `mkeph:family 2775` (setgid — new files inherit group)
 - [x] smb.conf global guest access disabled (`map to guest = never`, `usershare allow guests = no`)
 - [x] Family members added via `bash ~/code/jarvis/bash/jarvis-nas-users.sh <username>`
+
+### Melkhior NAS Client
+- [ ] Update `/etc/fstab` on Melkhior to use on-demand automount (laptop moves between networks — don't mount at boot): add `noauto,x-systemd.automount,x-systemd.mount-timeout=5,nofail` to the existing cifs entry, then `sudo systemctl daemon-reload && sudo umount /mnt/jarvis`
 
 ### NAS Notes
 - Share name is lowercase: `\\jarvis\jarvis`
@@ -537,6 +540,59 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - `bash ~/code/jarvis/bash/fooocus-up.sh` — stops Ollama hard, starts Fooocus (guaranteed full VRAM)
 - `bash ~/code/jarvis/bash/fooocus-down.sh` — stops Fooocus, restores Ollama
 - Most flexible — soft mode for casual use, hard switch available when needed
+
+### Phase 12b — VPN (WireGuard)
+Route all of JARVIS's outbound internet traffic through a VPN provider for ISP-level privacy. WireGuard runs natively on the OS (not in Docker) for system-wide coverage. A kill switch is included in the generated config — if the tunnel drops, traffic is blocked rather than leaking in plaintext.
+
+**⚠️ Provider not yet decided — candidates: Mullvad vs ProtonVPN**
+
+| | Mullvad | ProtonVPN |
+|---|---|---|
+| Account | Number only, no email | Email required |
+| Pricing | Flat ~$5/mo | Tiered (free → Plus → Unlimited) |
+| Kill switch | In generated config | In generated config |
+| Jurisdiction | Sweden | Switzerland |
+| Secure Core | No | Yes (multi-hop through CH/IS/SE) |
+| Port forwarding | Yes | Removed in 2023 |
+| Ecosystem | Standalone | Proton suite (Mail, Drive, Pass) |
+
+Both support downloading raw WireGuard `.conf` files — headless Linux setup is identical either way.
+Port forwarding is a non-factor for the current JARVIS setup (Tailscale covers remote access; all services are LAN-only).
+
+- [ ] **Decide on provider** (Mullvad vs ProtonVPN) and sign up
+- [ ] Install WireGuard and resolvconf:
+```bash
+sudo apt install wireguard resolvconf
+```
+- [ ] Generate a WireGuard config from the provider's dashboard — select server location, enable kill switch → download `.conf`
+- [ ] Copy the config to JARVIS:
+```bash
+scp <provider>-xx.conf jarvis:/etc/wireguard/
+```
+- [ ] Bring the tunnel up and verify:
+```bash
+sudo wg-quick up <config-name>
+curl ifconfig.me   # should return the provider's IP, not your home IP
+```
+- [ ] Enable on boot:
+```bash
+sudo systemctl enable wg-quick@<config-name>
+```
+- [ ] Test kill switch: `sudo wg-quick down <config-name>` then confirm internet is unreachable (`curl ifconfig.me` should fail or time out)
+- [ ] Re-enable tunnel: `sudo wg-quick up <config-name>`
+- [ ] Verify DNS isn't leaking using an external DNS leak test
+
+### VPN Notes
+- Both Mullvad and ProtonVPN generated `.conf` files include `PostUp`/`PreDown` iptables rules for the kill switch — no manual firewall config needed
+- Config file goes in `/etc/wireguard/` — filename determines the systemd service name (e.g. `mullvad-us-nyc.conf` → `wg-quick@mullvad-us-nyc`)
+- `resolvconf` is required for WireGuard to manage DNS — without it `wg-quick` will warn and DNS may not route through the tunnel
+- Choose a geographically close server for lowest latency
+- Tailscale (Phase 8) coexists fine — it uses its own WireGuard interface (`tailscale0`) separate from the VPN tunnel
+- If a Docker container needs to bypass the VPN (e.g. a service that needs your real IP), that requires per-container routing — evaluate when needed
+- To check tunnel status: `sudo wg show`
+- To switch servers: bring down current tunnel, copy new config, bring up new tunnel; can keep multiple `.conf` files and swap as needed
+
+---
 
 ### Phase 12 — World of Darkness RAG (AI Lore Assistant)
 Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector database, then wires it to a dedicated Ollama persona in Open WebUI. The model will retrieve relevant passages at query time and answer questions grounded in the actual source material.
