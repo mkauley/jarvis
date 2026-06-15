@@ -546,22 +546,13 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 ### Phase 12b — VPN (WireGuard)
 Route all of JARVIS's outbound internet traffic through a VPN provider for ISP-level privacy. WireGuard runs natively on the OS (not in Docker) for system-wide coverage. A kill switch is included in the generated config — if the tunnel drops, traffic is blocked rather than leaking in plaintext.
 
-**⚠️ Provider not yet decided — candidates: Mullvad vs ProtonVPN**
+**Provider: ProtonVPN ✅ (already subscribed)**
+- Jurisdiction: Switzerland
+- Secure Core: Yes (multi-hop through CH/IS/SE)
+- Kill switch: included in generated WireGuard config
+- Supports raw WireGuard `.conf` download — headless Linux setup works directly
 
-| | Mullvad | ProtonVPN |
-|---|---|---|
-| Account | Number only, no email | Email required |
-| Pricing | Flat ~$5/mo | Tiered (free → Plus → Unlimited) |
-| Kill switch | In generated config | In generated config |
-| Jurisdiction | Sweden | Switzerland |
-| Secure Core | No | Yes (multi-hop through CH/IS/SE) |
-| Port forwarding | Yes | Removed in 2023 |
-| Ecosystem | Standalone | Proton suite (Mail, Drive, Pass) |
-
-Both support downloading raw WireGuard `.conf` files — headless Linux setup is identical either way.
-Port forwarding is a non-factor for the current JARVIS setup (Tailscale covers remote access; all services are LAN-only).
-
-- [ ] **Decide on provider** (Mullvad vs ProtonVPN) and sign up
+- [x] Sign up for ProtonVPN
 - [ ] Install WireGuard and resolvconf:
 ```bash
 sudo apt install wireguard resolvconf
