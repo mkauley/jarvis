@@ -301,17 +301,17 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] Ollama connected as conversation agent using `qwen2.5:14b` (tools-compatible model)
 - [x] `qwen2.5:14b` pulled for HA conversation agent (tool/function calling support)
 - [x] Router "Allow Intranet Access" enabled for IoT SSIDs — resolves device visibility issues
-- [ ] Bring HA back into docker-compose management — run `docker inspect homeassistant` to capture current config, then add service to docker-compose.yml
-- [ ] Stop and remove the orphan homeassistant container, restart via compose
+- [x] Bring HA back into docker-compose management — run `docker inspect homeassistant` to capture current config, then add service to docker-compose.yml
+- [x] Stop and remove the orphan homeassistant container, restart via compose
 - [ ] Expose Govee entities to Assist for voice control (blocked — entities not appearing in Expose list, need Developer Tools → States to debug entity types)
 - [ ] Enable Advanced Mode on profile to unlock Developer Tools
 - [ ] Confirm Govee entity types in Developer Tools → States (filter "govee")
 - [ ] Wire Ollama conversation agent to control exposed devices via Assist
 
 #### Local Weather
-- [ ] Add Met.no integration in HA (Settings → Devices & Services → Add Integration → "Met.no") — no API key required, uses home coordinates set during onboarding
-- [ ] Expose the weather entity to the Ollama conversation agent
-- [ ] Test voice query: "What's the weather like?" / "Do I need an umbrella today?"
+- [x] Add Met.no integration in HA (Settings → Devices & Services → Add Integration → "Met.no") — no API key required, uses home coordinates set during onboarding
+- [ ] Expose the weather entity to the Ollama conversation agent — Settings → Voice Assistants → Expose tab, or Settings → Devices & Services → Met.no → entity → toggle "Expose to voice assistants"
+- [ ] Test voice query via drone1: "What's the weather like?" / "Do I need an umbrella today?"
 
 #### Google Calendar Integration
 - [ ] Create OAuth 2.0 credential in Google Cloud Console (type: Web application)
@@ -373,7 +373,7 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 ### Drone — Voice Satellite(s)
 - Hardware: Raspberry Pi 4 + KEYESTUDIO ReSpeaker 2-Mic Pi HAT V1.0 + speaker (8ohm 3W JST-PH2.0, already plugged in)
 - Naming scheme: `drone1`, `drone2`, etc. — hostname and username match (e.g. hostname `drone1`, user `drone1`)
-- Password: cypher key "D"
+- Password: cypher key "D" or "ultron1"
 - [x] microSD card acquired
 - [x] USB microSD reader acquired
 - [x] Raspberry Pi OS Lite 64-bit flashed via Raspberry Pi Imager (hostname `drone1`, user `drone1`, SSH key from Melkhior)
@@ -383,7 +383,8 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [x] drone1 static IP via DHCP reservation on router (192.168.50.204)
 - [x] Install seeed-voicecard drivers + wyoming-satellite + wyoming-openwakeword via `bash ~/code/jarvis/bash/drone-setup.sh` (phase 1 → reboot → phase 2)
 - [x] drone1 added to HA via Wyoming Protocol (auto-discovered via zeroconf, port 10700)
-- [ ] Apply conversational context fix to drone1 — edit `/etc/systemd/system/wyoming-satellite.service`, add `--conversation-id drone1` to the `ExecStart` line, then `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite` (already patched in `drone-setup.sh` for future drones)
+- [x] Apply conversational context fix to drone1 — `--conversation-id` flag is not supported in wyoming-satellite 1.4.1 (latest); removed from plan
+- [x] drone1 wyoming-satellite service fixed and running
 - [ ] Apply LED feedback to drone1 — (1) `scp ~/code/jarvis/drone/led.py drone1:~/drone/led.py`, (2) enable SPI: `echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt && sudo reboot`, (3) install deps: `~/wyoming-satellite/.venv/bin/pip install spidev pixel-ring`, (4) add the four event hook flags to `/etc/systemd/system/wyoming-satellite.service` and `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite` (already patched in `drone-setup.sh` for future drones)
 - Wake word: `hey_jarvis` (runs locally on Pi); STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (wyoming-piper, en_US-lessac-medium)
 
@@ -404,6 +405,7 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - seeed-voicecard on kernel 6.12: must use the `v6.12` branch of the HinTak fork (`git checkout v6.12`) — master branch fails to compile against kernel 6.12
 - wyoming-satellite 1.4.1+: `--stt-uri` and `--tts-uri` flags removed — HA handles routing to Whisper/Piper directly; satellite only needs `--wake-uri`
 - wyoming-satellite must use `network-online.target` (not `network.target`) in systemd — satellite starts before WiFi is ready otherwise and crashes with "Network is unreachable"
+- **Conversation context is not supported in wyoming-satellite 1.4.1** — HA opens a new TCP connection for every STT/TTS interaction with no session ID carried over; each wake word trigger starts a fresh conversation with no memory of prior turns. The `--conversation-id` flag does not exist in this version. For multi-turn conversation, use the HA companion app on your phone instead.
 - qwen2.5:14b defaults to responding in Chinese — use `jarvis-assistant` custom model (created via `bash ~/code/jarvis/bash/create-models.sh`) which has an English system prompt baked in; also suppresses chain-of-thought verbalization
 - "Think before responding" in HA voice assistant causes the model to speak its reasoning aloud — keep it off; instead the system prompt instructs the model to only speak the final answer
 - For real-time data (weather, etc.) a weather integration needs to be added to HA and exposed to the assistant — model has no live data access on its own
