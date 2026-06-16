@@ -303,10 +303,25 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] Router "Allow Intranet Access" enabled for IoT SSIDs — resolves device visibility issues
 - [x] Bring HA back into docker-compose management — run `docker inspect homeassistant` to capture current config, then add service to docker-compose.yml
 - [x] Stop and remove the orphan homeassistant container, restart via compose
-- [ ] Expose Govee entities to Assist for voice control (blocked — entities not appearing in Expose list, need Developer Tools → States to debug entity types)
-- [ ] Enable Advanced Mode on profile to unlock Developer Tools
-- [ ] Confirm Govee entity types in Developer Tools → States (filter "govee")
-- [ ] Wire Ollama conversation agent to control exposed devices via Assist
+- [x] Enable Advanced Mode on profile to unlock Developer Tools
+- [x] Expose Govee entities to Assist via Template Light helper — voice control of office lights working
+- [x] Wire Ollama conversation agent to control exposed devices via Assist
+
+#### Exposing Govee Lights to Voice Assist (Template Light workaround)
+The Govee LAN HACS integration does not register entities in HA's entity registry properly — Govee lights show up in Developer Tools → States and are manually controllable, but they never appear in the Voice Assistants → Expose tab. The fix is a Template Light helper that wraps the Govee entities.
+
+1. **Settings → Devices & Services → Helpers → Create Helper → Template → Template Light**
+2. Give it a descriptive device-like name (e.g. "Office Lights") — **avoid room/area words** like "Office", "Cortex", etc. that the model may interpret as a location rather than a device. Use something like "Office Lights" or "Desk Lights" that clearly sounds like a thing.
+3. **State box** — paste exactly:
+   ```
+   {{ states('light.YOUR_ENTITY_ID') }}
+   ```
+   Replace `light.YOUR_ENTITY_ID` with the first bulb's entity ID (e.g. `light.cortex_bulb_1`). This is used as the on/off state indicator — use any one bulb as the source of truth.
+4. **Actions on turn on** → click "+ Add Action" → select `light.turn_on` → add each Govee bulb entity as a target
+5. **Actions on turn off** → click "+ Add Action" → select `light.turn_off` → add each Govee bulb entity as a target
+6. Save the helper
+7. Go to **Settings → Voice Assistants → Expose** tab → search for your helper name → toggle it on
+8. Test via drone1: "Turn off the office lights"
 
 #### Local Weather
 - [x] Add Met.no integration in HA (Settings → Devices & Services → Add Integration → "Met.no") — no API key required, uses home coordinates set during onboarding
@@ -325,7 +340,7 @@ docker exec -it <container_name> bash  # open shell inside container
 - HA is currently running as an unmanaged orphan container (`ghcr.io/home-assistant/home-assistant:stable`) — not in docker-compose yet; needs to be brought back in
 - Original reason for removing from compose was frustration with devices not appearing — root cause was router "Allow Intranet Access" disabled on IoT SSIDs (C-3PO-Alpha/Beta), not a Docker issue
 - Ecobee: paired via HomeKit Controller; Ecobee native API is unavailable (program suspended) but HomeKit pairing works and device is controllable via Assist/chat
-- Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities aren't appearing in Expose list yet
+- Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities don't register in HA's entity registry — use Template Light helper to expose groups of Govee lights to voice Assist (see workaround steps above)
 - HA conversation agent MUST use a tools-compatible model — gemma3:27b does NOT support tools and will error
 - Use `qwen2.5:14b` for HA (tools + conversation), keep `gemma3:27b` for Open WebUI general chat
 - Developer Tools only visible with Advanced Mode enabled (profile → scroll down → Advanced Mode)
@@ -543,47 +558,47 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - `bash ~/code/jarvis/bash/fooocus-down.sh` — stops Fooocus, restores Ollama
 - Most flexible — soft mode for casual use, hard switch available when needed
 
-### Phase 12b — VPN (WireGuard)
-Route all of JARVIS's outbound internet traffic through a VPN provider for ISP-level privacy. WireGuard runs natively on the OS (not in Docker) for system-wide coverage. A kill switch is included in the generated config — if the tunnel drops, traffic is blocked rather than leaking in plaintext.
+### Phase 12b — VPN (WireGuard) ✅ COMPLETE
+Route all of JARVIS's outbound internet traffic through a VPN provider for ISP-level privacy. WireGuard runs natively on the OS (not in Docker) for system-wide coverage.
 
 **Provider: ProtonVPN ✅ (already subscribed)**
 - Jurisdiction: Switzerland
-- Secure Core: Yes (multi-hop through CH/IS/SE)
-- Kill switch: included in generated WireGuard config
+- Secure Core: Yes — config `jarvis-IS-US-1.conf` routes US → Iceland → exit (IS-US#1)
+- VPN Accelerator: on
 - Supports raw WireGuard `.conf` download — headless Linux setup works directly
 
 - [x] Sign up for ProtonVPN
-- [ ] Install WireGuard and resolvconf:
+- [x] Install WireGuard and resolvconf: `sudo apt install wireguard resolvconf`
+- [x] Generate WireGuard config from ProtonVPN dashboard (GNU/Linux, Secure Core, US via Iceland, VPN Accelerator on) → `jarvis-IS-US-1.conf`
+- [x] Copy config to JARVIS: `scp jarvis-IS-US-1.conf jarvis:/tmp/ && ssh jarvis sudo mv /tmp/jarvis-IS-US-1.conf /etc/wireguard/`
+- [x] Bring tunnel up and verify: `sudo wg-quick up jarvis-IS-US-1` → `curl ifconfig.me` returned ProtonVPN IP (79.127.160.182)
+- [x] Enable on boot: `sudo systemctl enable wg-quick@jarvis-IS-US-1`
+
+### VPN Commands
 ```bash
-sudo apt install wireguard resolvconf
+# Check tunnel status
+sudo wg show
+
+# Turn VPN off
+sudo wg-quick down jarvis-IS-US-1
+
+# Turn VPN on
+sudo wg-quick up jarvis-IS-US-1
+
+# Verify IP (should be ProtonVPN, not home IP)
+curl ifconfig.me
+
+# VPN starts automatically on boot via systemd — no manual start needed after reboot
 ```
-- [ ] Generate a WireGuard config from the provider's dashboard — select server location, enable kill switch → download `.conf`
-- [ ] Copy the config to JARVIS:
-```bash
-scp <provider>-xx.conf jarvis:/etc/wireguard/
-```
-- [ ] Bring the tunnel up and verify:
-```bash
-sudo wg-quick up <config-name>
-curl ifconfig.me   # should return the provider's IP, not your home IP
-```
-- [ ] Enable on boot:
-```bash
-sudo systemctl enable wg-quick@<config-name>
-```
-- [ ] Test kill switch: `sudo wg-quick down <config-name>` then confirm internet is unreachable (`curl ifconfig.me` should fail or time out)
-- [ ] Re-enable tunnel: `sudo wg-quick up <config-name>`
-- [ ] Verify DNS isn't leaking using an external DNS leak test
 
 ### VPN Notes
-- Both Mullvad and ProtonVPN generated `.conf` files include `PostUp`/`PreDown` iptables rules for the kill switch — no manual firewall config needed
-- Config file goes in `/etc/wireguard/` — filename determines the systemd service name (e.g. `mullvad-us-nyc.conf` → `wg-quick@mullvad-us-nyc`)
+- Config file: `/etc/wireguard/jarvis-IS-US-1.conf` — filename determines the systemd service name
 - `resolvconf` is required for WireGuard to manage DNS — without it `wg-quick` will warn and DNS may not route through the tunnel
-- Choose a geographically close server for lowest latency
+- WireGuard runs on the host OS (not Docker) so all traffic — including Docker containers — routes through the VPN
 - Tailscale (Phase 8) coexists fine — it uses its own WireGuard interface (`tailscale0`) separate from the VPN tunnel
 - If a Docker container needs to bypass the VPN (e.g. a service that needs your real IP), that requires per-container routing — evaluate when needed
-- To check tunnel status: `sudo wg show`
-- To switch servers: bring down current tunnel, copy new config, bring up new tunnel; can keep multiple `.conf` files and swap as needed
+- ProtonVPN's Linux WireGuard config does not include PostUp/PreDown kill switch rules — traffic will fall back to real IP if tunnel drops; acceptable for home server ISP privacy use case
+- To switch servers: `sudo wg-quick down jarvis-IS-US-1`, copy new `.conf` to `/etc/wireguard/`, bring up new tunnel; can keep multiple `.conf` files and swap as needed
 
 ---
 
