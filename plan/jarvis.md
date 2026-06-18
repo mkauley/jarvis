@@ -602,7 +602,36 @@ curl ifconfig.me
 
 ---
 
-### Phase 12 — World of Darkness RAG (AI Lore Assistant)
+### Phase 12 — drone0 (Second Voice Satellite)
+Add a second Wyoming satellite in a different room. Follows the same hardware and software stack as drone1. Naming scheme continues: `drone0` (or next sequential number decided at setup time).
+
+- Hardware: Raspberry Pi 4 + KEYESTUDIO ReSpeaker 2-Mic Pi HAT V1.0 + speaker (8ohm 3W JST-PH2.0)
+- Hostname/username: `drone0`; password: cypher key "D" or "ultron1"
+- Static IP: assign via DHCP reservation on router (next available in 192.168.50.x range)
+
+#### Setup Checklist
+- [ ] Acquire microSD card (16GB+ Class 10)
+- [ ] Flash Raspberry Pi OS Lite 64-bit via Raspberry Pi Imager (hostname `drone0`, user `drone0`, SSH key from Melkhior)
+- [ ] Boot and confirm SSH access: `ssh drone0`
+- [ ] Verify drone0 can reach JARVIS: `ping 192.168.50.200`
+- [ ] Set static IP via DHCP reservation on router
+- [ ] Ensure drone0 is on an SSID with "Allow Intranet Access" enabled (avoid C-3PO-Alpha/Beta unless that setting is confirmed on)
+- [ ] Run phase 1 of setup script: `bash ~/code/jarvis/bash/drone-setup.sh` → reboot
+- [ ] Run phase 2 of setup script after reboot
+- [ ] Confirm `wyoming-satellite` service is running: `systemctl status wyoming-satellite`
+- [ ] Add drone0 to HA via Wyoming Protocol (Settings → Devices & Services → Wyoming Protocol, or auto-discovered via zeroconf)
+- [ ] Test wake word ("hey jarvis") → full voice pipeline end to end
+- [ ] Apply LED feedback — (1) `scp ~/code/jarvis/drone/led.py drone0:~/drone/led.py`, (2) enable SPI: `echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt && sudo reboot`, (3) install deps: `~/wyoming-satellite/.venv/bin/pip install spidev pixel-ring`, (4) confirm the four event hook flags are in `/etc/systemd/system/wyoming-satellite.service` (patched in `drone-setup.sh`), then `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite`
+- [ ] Update Machines on the Network table above with drone0 hostname and IP
+
+#### drone0 Notes
+- `drone-setup.sh` already includes the LED hook flags and `network-online.target` fix — no manual patching needed for new drones
+- Confirm router "Allow Intranet Access" is enabled for whichever SSID drone0 joins — this was the root cause of the drone1 network issue
+- Pi 4 only — Pi 5 + ReSpeaker HAT has incomplete I2S driver support; use USB audio adapter if Pi 5 is substituted
+
+---
+
+### Phase 13 — World of Darkness RAG (AI Lore Assistant)
 Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector database, then wires it to a dedicated Ollama persona in Open WebUI. The model will retrieve relevant passages at query time and answer questions grounded in the actual source material.
 
 **Depends on:** External PDF-to-text conversion project (WoD books → plain text files)
@@ -636,7 +665,7 @@ Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector da
 - [ ] Test citation behavior: confirm model references book names when relevant
 - [ ] Test edge cases: questions spanning multiple books, contradictions between editions
 
-### WoD RAG Notes
+### Phase 13 WoD RAG Notes
 - RAG chosen over fine-tuning: keeps answers grounded in actual source text, no weight retraining required, easy to update when new books are added
 - ChromaDB is the simplest self-hosted vector DB — no auth required for local use, persistent storage via bind mount
 - `nomic-embed-text` is the recommended embedding model for Ollama RAG — fast, good quality, small footprint
