@@ -301,17 +301,32 @@ docker exec -it <container_name> bash  # open shell inside container
 - [x] Ollama connected as conversation agent using `qwen2.5:14b` (tools-compatible model)
 - [x] `qwen2.5:14b` pulled for HA conversation agent (tool/function calling support)
 - [x] Router "Allow Intranet Access" enabled for IoT SSIDs — resolves device visibility issues
-- [ ] Bring HA back into docker-compose management — run `docker inspect homeassistant` to capture current config, then add service to docker-compose.yml
-- [ ] Stop and remove the orphan homeassistant container, restart via compose
-- [ ] Expose Govee entities to Assist for voice control (blocked — entities not appearing in Expose list, need Developer Tools → States to debug entity types)
-- [ ] Enable Advanced Mode on profile to unlock Developer Tools
-- [ ] Confirm Govee entity types in Developer Tools → States (filter "govee")
-- [ ] Wire Ollama conversation agent to control exposed devices via Assist
+- [x] Bring HA back into docker-compose management — run `docker inspect homeassistant` to capture current config, then add service to docker-compose.yml
+- [x] Stop and remove the orphan homeassistant container, restart via compose
+- [x] Enable Advanced Mode on profile to unlock Developer Tools
+- [x] Expose Govee entities to Assist via Template Light helper — voice control of office lights working
+- [x] Wire Ollama conversation agent to control exposed devices via Assist
+
+#### Exposing Govee Lights to Voice Assist (Template Light workaround)
+The Govee LAN HACS integration does not register entities in HA's entity registry properly — Govee lights show up in Developer Tools → States and are manually controllable, but they never appear in the Voice Assistants → Expose tab. The fix is a Template Light helper that wraps the Govee entities.
+
+1. **Settings → Devices & Services → Helpers → Create Helper → Template → Template Light**
+2. Give it a descriptive device-like name (e.g. "Office Lights") — **avoid room/area words** like "Office", "Cortex", etc. that the model may interpret as a location rather than a device. Use something like "Office Lights" or "Desk Lights" that clearly sounds like a thing.
+3. **State box** — paste exactly:
+   ```
+   {{ states('light.YOUR_ENTITY_ID') }}
+   ```
+   Replace `light.YOUR_ENTITY_ID` with the first bulb's entity ID (e.g. `light.cortex_bulb_1`). This is used as the on/off state indicator — use any one bulb as the source of truth.
+4. **Actions on turn on** → click "+ Add Action" → select `light.turn_on` → add each Govee bulb entity as a target
+5. **Actions on turn off** → click "+ Add Action" → select `light.turn_off` → add each Govee bulb entity as a target
+6. Save the helper
+7. Go to **Settings → Voice Assistants → Expose** tab → search for your helper name → toggle it on
+8. Test via drone1: "Turn off the office lights"
 
 #### Local Weather
-- [ ] Add Met.no integration in HA (Settings → Devices & Services → Add Integration → "Met.no") — no API key required, uses home coordinates set during onboarding
-- [ ] Expose the weather entity to the Ollama conversation agent
-- [ ] Test voice query: "What's the weather like?" / "Do I need an umbrella today?"
+- [x] Add Met.no integration in HA (Settings → Devices & Services → Add Integration → "Met.no") — no API key required, uses home coordinates set during onboarding
+- [ ] Expose the weather entity to the Ollama conversation agent — Settings → Voice Assistants → Expose tab, or Settings → Devices & Services → Met.no → entity → toggle "Expose to voice assistants"
+- [ ] Test voice query via drone1: "What's the weather like?" / "Do I need an umbrella today?"
 
 #### Google Calendar Integration
 - [ ] Create OAuth 2.0 credential in Google Cloud Console (type: Web application)
@@ -325,7 +340,7 @@ docker exec -it <container_name> bash  # open shell inside container
 - HA is currently running as an unmanaged orphan container (`ghcr.io/home-assistant/home-assistant:stable`) — not in docker-compose yet; needs to be brought back in
 - Original reason for removing from compose was frustration with devices not appearing — root cause was router "Allow Intranet Access" disabled on IoT SSIDs (C-3PO-Alpha/Beta), not a Docker issue
 - Ecobee: paired via HomeKit Controller; Ecobee native API is unavailable (program suspended) but HomeKit pairing works and device is controllable via Assist/chat
-- Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities aren't appearing in Expose list yet
+- Govee: cloud API integration doesn't support control for most devices; Govee LAN Hass works for manual control but entities don't register in HA's entity registry — use Template Light helper to expose groups of Govee lights to voice Assist (see workaround steps above)
 - HA conversation agent MUST use a tools-compatible model — gemma3:27b does NOT support tools and will error
 - Use `qwen2.5:14b` for HA (tools + conversation), keep `gemma3:27b` for Open WebUI general chat
 - Developer Tools only visible with Advanced Mode enabled (profile → scroll down → Advanced Mode)
@@ -373,7 +388,7 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 ### Drone — Voice Satellite(s)
 - Hardware: Raspberry Pi 4 + KEYESTUDIO ReSpeaker 2-Mic Pi HAT V1.0 + speaker (8ohm 3W JST-PH2.0, already plugged in)
 - Naming scheme: `drone1`, `drone2`, etc. — hostname and username match (e.g. hostname `drone1`, user `drone1`)
-- Password: cypher key "D"
+- Password: cypher key "D" or "ultron1"
 - [x] microSD card acquired
 - [x] USB microSD reader acquired
 - [x] Raspberry Pi OS Lite 64-bit flashed via Raspberry Pi Imager (hostname `drone1`, user `drone1`, SSH key from Melkhior)
@@ -383,7 +398,8 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - [x] drone1 static IP via DHCP reservation on router (192.168.50.204)
 - [x] Install seeed-voicecard drivers + wyoming-satellite + wyoming-openwakeword via `bash ~/code/jarvis/bash/drone-setup.sh` (phase 1 → reboot → phase 2)
 - [x] drone1 added to HA via Wyoming Protocol (auto-discovered via zeroconf, port 10700)
-- [ ] Apply conversational context fix to drone1 — edit `/etc/systemd/system/wyoming-satellite.service`, add `--conversation-id drone1` to the `ExecStart` line, then `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite` (already patched in `drone-setup.sh` for future drones)
+- [x] Apply conversational context fix to drone1 — `--conversation-id` flag is not supported in wyoming-satellite 1.4.1 (latest); removed from plan
+- [x] drone1 wyoming-satellite service fixed and running
 - [ ] Apply LED feedback to drone1 — (1) `scp ~/code/jarvis/drone/led.py drone1:~/drone/led.py`, (2) enable SPI: `echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt && sudo reboot`, (3) install deps: `~/wyoming-satellite/.venv/bin/pip install spidev pixel-ring`, (4) add the four event hook flags to `/etc/systemd/system/wyoming-satellite.service` and `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite` (already patched in `drone-setup.sh` for future drones)
 - Wake word: `hey_jarvis` (runs locally on Pi); STT → JARVIS:10300 (Whisper); TTS → JARVIS:10200 (wyoming-piper, en_US-lessac-medium)
 
@@ -404,6 +420,7 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - seeed-voicecard on kernel 6.12: must use the `v6.12` branch of the HinTak fork (`git checkout v6.12`) — master branch fails to compile against kernel 6.12
 - wyoming-satellite 1.4.1+: `--stt-uri` and `--tts-uri` flags removed — HA handles routing to Whisper/Piper directly; satellite only needs `--wake-uri`
 - wyoming-satellite must use `network-online.target` (not `network.target`) in systemd — satellite starts before WiFi is ready otherwise and crashes with "Network is unreachable"
+- **Conversation context is not supported in wyoming-satellite 1.4.1** — HA opens a new TCP connection for every STT/TTS interaction with no session ID carried over; each wake word trigger starts a fresh conversation with no memory of prior turns. The `--conversation-id` flag does not exist in this version. For multi-turn conversation, use the HA companion app on your phone instead.
 - qwen2.5:14b defaults to responding in Chinese — use `jarvis-assistant` custom model (created via `bash ~/code/jarvis/bash/create-models.sh`) which has an English system prompt baked in; also suppresses chain-of-thought verbalization
 - "Think before responding" in HA voice assistant causes the model to speak its reasoning aloud — keep it off; instead the system prompt instructs the model to only speak the final answer
 - For real-time data (weather, etc.) a weather integration needs to be added to HA and exposed to the assistant — model has no live data access on its own
@@ -541,60 +558,80 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - `bash ~/code/jarvis/bash/fooocus-down.sh` — stops Fooocus, restores Ollama
 - Most flexible — soft mode for casual use, hard switch available when needed
 
-### Phase 12b — VPN (WireGuard)
-Route all of JARVIS's outbound internet traffic through a VPN provider for ISP-level privacy. WireGuard runs natively on the OS (not in Docker) for system-wide coverage. A kill switch is included in the generated config — if the tunnel drops, traffic is blocked rather than leaking in plaintext.
+### Phase 12b — VPN (WireGuard) ✅ COMPLETE
+Route all of JARVIS's outbound internet traffic through a VPN provider for ISP-level privacy. WireGuard runs natively on the OS (not in Docker) for system-wide coverage.
 
-**⚠️ Provider not yet decided — candidates: Mullvad vs ProtonVPN**
+**Provider: ProtonVPN ✅ (already subscribed)**
+- Jurisdiction: Switzerland
+- Secure Core: Yes — config `jarvis-IS-US-1.conf` routes US → Iceland → exit (IS-US#1)
+- VPN Accelerator: on
+- Supports raw WireGuard `.conf` download — headless Linux setup works directly
 
-| | Mullvad | ProtonVPN |
-|---|---|---|
-| Account | Number only, no email | Email required |
-| Pricing | Flat ~$5/mo | Tiered (free → Plus → Unlimited) |
-| Kill switch | In generated config | In generated config |
-| Jurisdiction | Sweden | Switzerland |
-| Secure Core | No | Yes (multi-hop through CH/IS/SE) |
-| Port forwarding | Yes | Removed in 2023 |
-| Ecosystem | Standalone | Proton suite (Mail, Drive, Pass) |
+- [x] Sign up for ProtonVPN
+- [x] Install WireGuard and resolvconf: `sudo apt install wireguard resolvconf`
+- [x] Generate WireGuard config from ProtonVPN dashboard (GNU/Linux, Secure Core, US via Iceland, VPN Accelerator on) → `jarvis-IS-US-1.conf`
+- [x] Copy config to JARVIS: `scp jarvis-IS-US-1.conf jarvis:/tmp/ && ssh jarvis sudo mv /tmp/jarvis-IS-US-1.conf /etc/wireguard/`
+- [x] Bring tunnel up and verify: `sudo wg-quick up jarvis-IS-US-1` → `curl ifconfig.me` returned ProtonVPN IP (79.127.160.182)
+- [x] Enable on boot: `sudo systemctl enable wg-quick@jarvis-IS-US-1`
 
-Both support downloading raw WireGuard `.conf` files — headless Linux setup is identical either way.
-Port forwarding is a non-factor for the current JARVIS setup (Tailscale covers remote access; all services are LAN-only).
+### VPN Commands
+```bash
+# Check tunnel status
+sudo wg show
 
-- [ ] **Decide on provider** (Mullvad vs ProtonVPN) and sign up
-- [ ] Install WireGuard and resolvconf:
-```bash
-sudo apt install wireguard resolvconf
+# Turn VPN off
+sudo wg-quick down jarvis-IS-US-1
+
+# Turn VPN on
+sudo wg-quick up jarvis-IS-US-1
+
+# Verify IP (should be ProtonVPN, not home IP)
+curl ifconfig.me
+
+# VPN starts automatically on boot via systemd — no manual start needed after reboot
 ```
-- [ ] Generate a WireGuard config from the provider's dashboard — select server location, enable kill switch → download `.conf`
-- [ ] Copy the config to JARVIS:
-```bash
-scp <provider>-xx.conf jarvis:/etc/wireguard/
-```
-- [ ] Bring the tunnel up and verify:
-```bash
-sudo wg-quick up <config-name>
-curl ifconfig.me   # should return the provider's IP, not your home IP
-```
-- [ ] Enable on boot:
-```bash
-sudo systemctl enable wg-quick@<config-name>
-```
-- [ ] Test kill switch: `sudo wg-quick down <config-name>` then confirm internet is unreachable (`curl ifconfig.me` should fail or time out)
-- [ ] Re-enable tunnel: `sudo wg-quick up <config-name>`
-- [ ] Verify DNS isn't leaking using an external DNS leak test
 
 ### VPN Notes
-- Both Mullvad and ProtonVPN generated `.conf` files include `PostUp`/`PreDown` iptables rules for the kill switch — no manual firewall config needed
-- Config file goes in `/etc/wireguard/` — filename determines the systemd service name (e.g. `mullvad-us-nyc.conf` → `wg-quick@mullvad-us-nyc`)
+- Config file: `/etc/wireguard/jarvis-IS-US-1.conf` — filename determines the systemd service name
 - `resolvconf` is required for WireGuard to manage DNS — without it `wg-quick` will warn and DNS may not route through the tunnel
-- Choose a geographically close server for lowest latency
+- WireGuard runs on the host OS (not Docker) so all traffic — including Docker containers — routes through the VPN
 - Tailscale (Phase 8) coexists fine — it uses its own WireGuard interface (`tailscale0`) separate from the VPN tunnel
 - If a Docker container needs to bypass the VPN (e.g. a service that needs your real IP), that requires per-container routing — evaluate when needed
-- To check tunnel status: `sudo wg show`
-- To switch servers: bring down current tunnel, copy new config, bring up new tunnel; can keep multiple `.conf` files and swap as needed
+- ProtonVPN's Linux WireGuard config does not include PostUp/PreDown kill switch rules — traffic will fall back to real IP if tunnel drops; acceptable for home server ISP privacy use case
+- To switch servers: `sudo wg-quick down jarvis-IS-US-1`, copy new `.conf` to `/etc/wireguard/`, bring up new tunnel; can keep multiple `.conf` files and swap as needed
 
 ---
 
-### Phase 12 — World of Darkness RAG (AI Lore Assistant)
+### Phase 12 — drone0 (Second Voice Satellite)
+Add a second Wyoming satellite in a different room. Follows the same hardware and software stack as drone1. Naming scheme continues: `drone0` (or next sequential number decided at setup time).
+
+- Hardware: Raspberry Pi 4 + KEYESTUDIO ReSpeaker 2-Mic Pi HAT V1.0 + speaker (8ohm 3W JST-PH2.0)
+- Hostname/username: `drone0`; password: cypher key "D" or "ultron1"
+- Static IP: assign via DHCP reservation on router (next available in 192.168.50.x range)
+
+#### Setup Checklist
+- [ ] Acquire microSD card (16GB+ Class 10)
+- [ ] Flash Raspberry Pi OS Lite 64-bit via Raspberry Pi Imager (hostname `drone0`, user `drone0`, SSH key from Melkhior)
+- [ ] Boot and confirm SSH access: `ssh drone0`
+- [ ] Verify drone0 can reach JARVIS: `ping 192.168.50.200`
+- [ ] Set static IP via DHCP reservation on router
+- [ ] Ensure drone0 is on an SSID with "Allow Intranet Access" enabled (avoid C-3PO-Alpha/Beta unless that setting is confirmed on)
+- [ ] Run phase 1 of setup script: `bash ~/code/jarvis/bash/drone-setup.sh` → reboot
+- [ ] Run phase 2 of setup script after reboot
+- [ ] Confirm `wyoming-satellite` service is running: `systemctl status wyoming-satellite`
+- [ ] Add drone0 to HA via Wyoming Protocol (Settings → Devices & Services → Wyoming Protocol, or auto-discovered via zeroconf)
+- [ ] Test wake word ("hey jarvis") → full voice pipeline end to end
+- [ ] Apply LED feedback — (1) `scp ~/code/jarvis/drone/led.py drone0:~/drone/led.py`, (2) enable SPI: `echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt && sudo reboot`, (3) install deps: `~/wyoming-satellite/.venv/bin/pip install spidev pixel-ring`, (4) confirm the four event hook flags are in `/etc/systemd/system/wyoming-satellite.service` (patched in `drone-setup.sh`), then `sudo systemctl daemon-reload && sudo systemctl restart wyoming-satellite`
+- [ ] Update Machines on the Network table above with drone0 hostname and IP
+
+#### drone0 Notes
+- `drone-setup.sh` already includes the LED hook flags and `network-online.target` fix — no manual patching needed for new drones
+- Confirm router "Allow Intranet Access" is enabled for whichever SSID drone0 joins — this was the root cause of the drone1 network issue
+- Pi 4 only — Pi 5 + ReSpeaker HAT has incomplete I2S driver support; use USB audio adapter if Pi 5 is substituted
+
+---
+
+### Phase 13 — World of Darkness RAG (AI Lore Assistant)
 Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector database, then wires it to a dedicated Ollama persona in Open WebUI. The model will retrieve relevant passages at query time and answer questions grounded in the actual source material.
 
 **Depends on:** External PDF-to-text conversion project (WoD books → plain text files)
@@ -628,7 +665,7 @@ Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector da
 - [ ] Test citation behavior: confirm model references book names when relevant
 - [ ] Test edge cases: questions spanning multiple books, contradictions between editions
 
-### WoD RAG Notes
+### Phase 13 WoD RAG Notes
 - RAG chosen over fine-tuning: keeps answers grounded in actual source text, no weight retraining required, easy to update when new books are added
 - ChromaDB is the simplest self-hosted vector DB — no auth required for local use, persistent storage via bind mount
 - `nomic-embed-text` is the recommended embedding model for Ollama RAG — fast, good quality, small footprint

@@ -125,7 +125,6 @@ ExecStart=$HOME/wyoming-satellite/.venv/bin/python -m wyoming_satellite \\
     --snd-command "aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw" \\
     --wake-uri tcp://127.0.0.1:$WAKE_PORT \\
     --wake-word-name "$WAKE_WORD" \\
-    --conversation-id "$HOSTNAME" \\
     --detection-command "$HOME/wyoming-satellite/.venv/bin/python $HOME/drone/led.py listen" \\
     --transcript-command "$HOME/wyoming-satellite/.venv/bin/python $HOME/drone/led.py think" \\
     --tts-start-command "$HOME/wyoming-satellite/.venv/bin/python $HOME/drone/led.py speak" \\
