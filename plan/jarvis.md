@@ -676,6 +676,71 @@ Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector da
 
 ---
 
+### Phase 14 — CI/CD for datarune Apps (Self-Hosted GitHub Actions Runner)
+JARVIS acts as a self-hosted GitHub Actions runner so pushes to a repo's `main` branch trigger a job that runs on JARVIS itself — building/pushing to Docker Hub, then a manual pull + restart on EC2.
+
+#### Design: One Runner Service Per Repo
+A self-hosted runner on a personal GitHub account (no org) binds to exactly one repo per registration — `./config.sh` writes `.runner`/`.credentials` files scoped to that repo, so the same folder can't serve two repos. Each app repo therefore gets its own runner install + its own systemd service, all running concurrently on JARVIS.
+
+- Folder convention: `~/actions/<reponame>` (e.g. `~/actions/datarune`, `~/actions/arcanematrix`) — folder name is arbitrary, not referenced by GitHub or the runner binary, just kept consistent for sanity.
+- ⚠️ arcanematrix's runner was set up before this convention and still lives at `~/actions-runner` — not yet migrated to `~/actions/arcanematrix`. Migrate opportunistically (uninstall service, move folder, reinstall) or leave as-is; functionally identical either way.
+- Idle runners are lightweight — running several side-by-side on JARVIS is not a resource concern.
+
+#### Build Order: datarune-base First
+arcanematrix's Dockerfile (and every other app's) is `FROM` the `datarune-base` image, so `datarune`'s own build/push workflow must exist and run before any dependent app's build workflow is added.
+
+#### arcanematrix — Step 1: Pull on Push ✅
+- [x] Register JARVIS as the self-hosted runner for the `arcanematrix` repo (installed at `~/actions-runner`)
+- [x] Add `.github/workflows/build.yml` to the `arcanematrix` repo (file must be directly inside `.github/workflows/`, not just the same parent folder — caught this mistake once already):
+```yaml
+name: Pull on push
+on:
+  push:
+    branches: [main]
+
+jobs:
+  pull:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+```
+- [x] Push to `main` and confirm the job runs on JARVIS and checks out the latest code
+- [x] Installed as a systemd service (`sudo ./svc.sh install && sudo ./svc.sh start`) so it survives reboot/SSH disconnect
+
+#### datarune-base — Step 1: Build and Push (in progress)
+`datarune/docker/Dockerfile` already exists (`FROM python:3.14-slim`, installs `docker/requirements.txt`, copies repo in) — just needs its own runner + workflow.
+
+- [ ] Register a new runner for the `datarune` repo at `~/actions/datarune` (or `~/actions-runner-datarune`), installed as its own systemd service
+- [ ] Add `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets to the `datarune` repo (Settings → Secrets and variables → Actions) — secrets don't share across repos, so this is separate from any other repo's secrets
+- [ ] Add `.github/workflows/build.yml` to the `datarune` repo:
+```yaml
+name: Build and Push datarune-base
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - run: docker build -f docker/Dockerfile -t ${{ secrets.DOCKERHUB_USERNAME }}/datarune-base:latest .
+      - run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/datarune-base:latest
+```
+- [ ] Push to `main`, confirm `datarune-base:latest` builds and lands on Docker Hub
+
+#### Future steps (not yet implemented)
+- Wire arcanematrix's workflow to actually build its container (`docker build` step using `datarune-base:latest`) and push to Docker Hub
+- Manually pull the updated image on EC2 and restart via docker-compose
+- Repeat runner registration + workflow for the other datarune apps (bbndh, gng, familiar, passman, snallygaster)
+- Open question: should a datarune-base rebuild automatically trigger dependent app rebuilds (e.g. via `repository_dispatch`), or stay manual? Leaning manual for now given project size.
+
+---
+
 ## Key Concepts Learned in This Project
 
 | Concept | Where you'll encounter it |
