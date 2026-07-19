@@ -600,6 +600,27 @@ curl ifconfig.me
 - ProtonVPN's Linux WireGuard config does not include PostUp/PreDown kill switch rules — traffic will fall back to real IP if tunnel drops; acceptable for home server ISP privacy use case
 - To switch servers: `sudo wg-quick down jarvis-IS-US-1`, copy new `.conf` to `/etc/wireguard/`, bring up new tunnel; can keep multiple `.conf` files and swap as needed
 
+#### Split-Tunnel for Docker Hub Traffic (planned, not yet implemented)
+**Problem confirmed:** the Secure Core route (US → Iceland → exit) adds real, measurable unreliability to the path from JARVIS to Docker Hub specifically — not a JARVIS resource issue (memory checked fine), not a dead tunnel (WireGuard handshake stayed healthy throughout). Diagnosed via `ping hub.docker.com`:
+- **Tunnel up:** ~260ms latency, ~30% packet loss
+- **Tunnel down:** ~5-7ms latency, 0% packet loss
+
+This is the root cause of several CI/CD pipeline failures in the same session: a `docker push` that stalled ~15 minutes on `datarune-latest`, a `docker/login-action` failure (`TLS handshake timeout` reaching `registry-1.docker.io`), and a `docker build` failure (`context deadline exceeded`) — all reaching the same host, all cleared up when tested with the tunnel down.
+
+**Options considered:**
+1. Manual toggle (`wg-quick down`/`up` around CI sessions) — zero setup, works today, but manual and drops VPN protection for *everything* during that window, not just CI traffic
+   - ⚠️ Gotcha: toggling the VPN mid-session breaks `jarvis-shared`'s persistent connection to GitHub's Actions coordination service — a queued job will sit stuck on "Waiting for a runner to pick up this job..." until the runner service is restarted. Fix: `cd ~/actions/shared && sudo ./svc.sh stop && sudo ./svc.sh start` after toggling the tunnel either direction, don't assume it reconnects on its own.
+2. Swap Secure Core for a plain single-hop ProtonVPN config — one `.conf` file swap, fixes it for all traffic, but permanently trades away the extra anonymity hop for all traffic, not just CI
+3. **Chosen: destination-based split-tunnel, so only Docker Hub traffic bypasses the tunnel; Secure Core stays fully intact for everything else**
+
+**Plan for option 3 (not yet implemented — do when there's time to test carefully, since this touches core routing on a box that also runs HA/NAS/voice pipeline):**
+- Docker Hub is Cloudflare-fronted with rotating IPs (`registry-1.docker.io`, `auth.docker.io`, etc.) — can't pin a static IP/CIDR exception, needs to resolve dynamically
+- `dnsmasq` configured to watch Docker Hub's hostnames and auto-populate an `ipset` with whatever IPs they currently resolve to
+- An `ip rule` routing traffic matching that `ipset` via the normal table (real ISP gateway) instead of the WireGuard table
+- That rule needs **higher priority** than the one `wg-quick` installs (`ip -4 rule add not fwmark 51820 table 51820`), so it's evaluated first and wins for just that traffic
+- Everything else continues through Secure Core unchanged
+- Test carefully step by step — a mistake here risks silently leaking unrelated traffic outside the VPN (defeats the point of having it) rather than failing loudly
+
 ---
 
 ### Phase 12 — drone0 (Second Voice Satellite)
@@ -679,42 +700,42 @@ Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector da
 ### Phase 14 — CI/CD for datarune Apps (Self-Hosted GitHub Actions Runner)
 JARVIS acts as a self-hosted GitHub Actions runner so pushes to a repo's `main` branch trigger a job that runs on JARVIS itself — building/pushing to Docker Hub, then a manual pull + restart on EC2.
 
-#### Design: One Runner Service Per Repo
-A self-hosted runner on a personal GitHub account (no org) binds to exactly one repo per registration — `./config.sh` writes `.runner`/`.credentials` files scoped to that repo, so the same folder can't serve two repos. Each app repo therefore gets its own runner install + its own systemd service, all running concurrently on JARVIS.
+#### Design: Shared Org-Level Runner ✅ (superseded the old one-runner-per-repo design)
+The GitHub account was migrated from a personal account to the **Arcane-Matrix** organization. Personal-account runners bind to exactly one repo per registration (`./config.sh` writes `.runner`/`.credentials` scoped to that repo), which is why the original design called for one runner install + systemd service per app. Org-level runner registration doesn't have that restriction — one runner can serve every repo in the org — so JARVIS now runs a single shared runner instead.
 
-- Folder convention: `~/actions/<reponame>` (e.g. `~/actions/datarune`, `~/actions/arcanematrix`) — folder name is arbitrary, not referenced by GitHub or the runner binary, just kept consistent for sanity.
-- ⚠️ arcanematrix's runner was set up before this convention and still lives at `~/actions-runner` — not yet migrated to `~/actions/arcanematrix`. Migrate opportunistically (uninstall service, move folder, reinstall) or leave as-is; functionally identical either way.
-- Idle runners are lightweight — running several side-by-side on JARVIS is not a resource concern.
+- [x] Registered a single shared runner at `~/actions/shared`, named `jarvis-shared`, installed as its own systemd service (`sudo ./svc.sh install && sudo ./svc.sh start`)
+- [x] Registration gotcha hit once: `POST https://api.github.com/actions/runner-registration` → 404. Cause was a stale/expired registration token (tokens from the org's "New runner" page expire ~1hr) combined with leftover partial `.runner`/`.credentials` from an earlier attempt. Fix: `./config.sh remove` to clear the partial state, grab a **fresh** token from `https://github.com/organizations/Arcane-Matrix/settings/actions/runners/new`, and run `config.sh` immediately after copying it.
+- [x] Repository access for the runner: intended to restrict to just the app repos (`arcanematrix`, `datarune`, `bbndh`, etc.), but this setting actually lives under **Org Settings → Actions → Runner groups** (not on the runner's own page) — it's a property of the runner's *group*, not the runner itself. Selective repo access for a runner group on private repos requires a paid GitHub plan (Team or higher); on the Free org plan this wasn't available, so the group is left on **"All repositories."** Acceptable tradeoff for a small personal org where every repo in it is trusted.
+- [x] Decommissioned the old per-repo runners after confirming a push to `datarune` and to `arcanematrix` both ran successfully on `jarvis-shared`: stopped/uninstalled `arcanematrix`'s old service at `~/actions-runner` and `datarune`'s at `~/actions/datarune`, removed both folders, and removed the orphaned runner entries from each repo's own GitHub settings page.
+- Any new app repo (bbndh, gng, ...) needs **no runner setup of its own** — it just needs its `build.yml` to say `runs-on: self-hosted`, same as before.
+- Tradeoff of one shared runner: it executes **one job at a time** — a second push queues behind whatever's currently building rather than running in parallel. Given how infrequent and fast these builds are, this hasn't been an issue in practice. See "Cross-Repo Rebuild Ordering" below — this limitation is actually load-bearing for how datarune → dependent rebuilds are sequenced.
 
-#### Build Order: datarune-base First
-arcanematrix's Dockerfile (and every other app's) is `FROM` the `datarune-base` image, so `datarune`'s own build/push workflow must exist and run before any dependent app's build workflow is added.
+#### Docker Hub Secrets — Stayed Repo-Level (org-level evaluated and rejected)
+Considered moving `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` to an organization-level secret so they're defined once instead of per-repo. Hit the same Free-plan wall as the runner groups above: scoping an org secret to specific **private** repos requires a paid plan (Team+); Free-org secrets can only be scoped to "All repositories" (including public ones) or left effectively unusable for a private-repo-only setup. Paying for Team just to avoid copy-pasting two secrets into each new repo isn't worth it at this project's size.
+- **Decision:** keep `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` as repo-level secrets on every app repo. `datarune` and `arcanematrix` already have them; add them the same way to `bbndh` and every future app repo as it onboards.
+
+#### Cross-Repo Rebuild Ordering (manual trigger, chosen over automation)
+Docker doesn't propagate rebuilds — `arcanematrix`/`bbndh`'s `FROM mkeph/webglyphs:datarune-latest` is resolved once, at that job's build time. If `datarune` changes, dependents don't pick it up until *their own* workflow runs again. Considered `repository_dispatch` (datarune's workflow auto-triggers dependents on push) and nightly scheduled rebuilds; **decided to stay fully manual** given the project's current size (2-3 dependents) — matches the plan's original leaning.
+- **The rule:** after pushing a change to `datarune`, push (or re-run) each dependent repo's workflow (`arcanematrix`, `bbndh`, and later `gng`) — and do it in that order, `datarune` first.
+- **Why the order matters, and why the shared runner makes it safe:** with a single shared runner, only one job runs at a time. If a dependent's job is pushed after datarune's, it queues behind datarune's job and only starts once datarune's build+push has *fully completed* — so its `FROM datarune-latest` pull is guaranteed to see the fresh image, not a stale or mid-push one. Pushing the dependent *first* (or on two separate runners, which could run in parallel) risks a race where it builds against the old `datarune-latest`.
+- No extra CI wiring needed for this — it's purely an operational habit (push order), enabled by the shared-runner serialization already in place.
+
+#### Image Naming Convention (corrected)
+Not a standalone `datarune-base` image as originally planned — all apps share **one** Docker Hub repository, `mkeph/webglyphs`, distinguished by tag: `datarune-latest`, `datarune-dev`, `arcanematrix-latest`, etc. `datarune`'s own workflow also builds a `dev` tag off the `dev` branch (tag picked at runtime: `main` → `latest`, anything else → `dev`).
+
+#### Build Order: datarune First
+arcanematrix's Dockerfile (and every other app's) is `FROM mkeph/webglyphs:datarune-latest`, so `datarune`'s own build/push workflow must exist and run before any dependent app's build workflow is added.
 
 #### arcanematrix — Step 1: Pull on Push ✅
-- [x] Register JARVIS as the self-hosted runner for the `arcanematrix` repo (installed at `~/actions-runner`)
-- [x] Add `.github/workflows/build.yml` to the `arcanematrix` repo (file must be directly inside `.github/workflows/`, not just the same parent folder — caught this mistake once already):
-```yaml
-name: Pull on push
-on:
-  push:
-    branches: [main]
-
-jobs:
-  pull:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-```
+- [x] ~~Register JARVIS as the self-hosted runner for the `arcanematrix` repo (installed at `~/actions-runner`)~~ — superseded; now runs on the shared `jarvis-shared` org runner (see "Design: Shared Org-Level Runner" above). Old dedicated runner decommissioned.
+- [x] Add `.github/workflows/build.yml` to the `arcanematrix` repo (file must be directly inside `.github/workflows/`, not just the same parent folder — caught this mistake once already)
 - [x] Push to `main` and confirm the job runs on JARVIS and checks out the latest code
-- [x] Installed as a systemd service (`sudo ./svc.sh install && sudo ./svc.sh start`) so it survives reboot/SSH disconnect
+- [x] Confirmed working on the new shared runner post-migration
 
-#### datarune-base — Step 1: Build and Push (in progress)
-`datarune/docker/Dockerfile` already exists (`FROM python:3.14-slim`, installs `docker/requirements.txt`, copies repo in) — just needs its own runner + workflow.
-
-- [ ] Register a new runner for the `datarune` repo at `~/actions/datarune` (or `~/actions-runner-datarune`), installed as its own systemd service
-- [ ] Add `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets to the `datarune` repo (Settings → Secrets and variables → Actions) — secrets don't share across repos, so this is separate from any other repo's secrets
-- [ ] Add `.github/workflows/build.yml` to the `datarune` repo:
+#### arcanematrix — Step 2: Build and Push ✅
+`arcanematrix/docker/Dockerfile` builds `FROM mkeph/webglyphs:datarune-latest`, sets `WORKDIR /app/am`, copies the repo in, and runs `gunicorn am:am -w 1 -b 0.0.0.0:8000`. The workflow now actually builds and pushes instead of just checking out:
 ```yaml
-name: Build and Push datarune-base
+name: Build Arcane Matrix
 on:
   push:
     branches: [main]
@@ -728,16 +749,102 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - run: docker build -f docker/Dockerfile -t ${{ secrets.DOCKERHUB_USERNAME }}/datarune-base:latest .
-      - run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/datarune-base:latest
+      - run: docker build -f docker/Dockerfile -t ${{ secrets.DOCKERHUB_USERNAME }}/webglyphs:arcanematrix-latest .
+      - run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/webglyphs:arcanematrix-latest
 ```
-- [ ] Push to `main`, confirm `datarune-base:latest` builds and lands on Docker Hub
+- [x] Wire arcanematrix's workflow to actually build its container using `webglyphs:datarune-latest` and push to Docker Hub (previously listed under "Future steps" — now done)
+
+#### datarune — Step 1: Build and Push ✅
+`datarune/docker/Dockerfile` (`FROM python:3.14-slim`, installs `docker/requirements.txt`, copies repo in) has its own runner + workflow now, with `main`/`dev` branch → `latest`/`dev` tag logic:
+```yaml
+name: Build Datarune
+on:
+  push:
+    branches: [main,dev]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        run: echo "TAG=$([ "${{ github.ref_name }}" = "main" ] && echo latest || echo dev)" >> $GITHUB_ENV
+
+      - run: docker build -f docker/Dockerfile -t ${{ secrets.DOCKERHUB_USERNAME }}/webglyphs:datarune-${{ env.TAG }} .
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/webglyphs:datarune-${{ env.TAG }}
+```
+- [x] ~~Register a runner for the `datarune` repo, installed as its own systemd service~~ — superseded; now runs on the shared `jarvis-shared` org runner. Old dedicated runner decommissioned.
+- [x] Add `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets to the `datarune` repo (kept repo-level — see "Docker Hub Secrets" note above)
+- [x] Add `.github/workflows/build.yml` to the `datarune` repo, with `dev` branch support
+- [x] Added `ENV PYTHONPATH=/app` to `datarune/docker/Dockerfile` — needed so downstream apps that actually `import datarune.*` (e.g. bbndh) can resolve the package regardless of their own `WORKDIR`. Not needed by arcanematrix, since `am.py` never imports from `datarune`.
+- [ ] Confirm `datarune-latest`/`datarune-dev` actually lands on Docker Hub after a real push (not yet independently verified)
+
+#### bbndh — Step 1: Build and Push (Dockerfiles + workflow done; runner/secrets/EC2 side pending)
+`bbn.py` (Flask app variable `bbn`) genuinely imports the `datarune` package (`datarune.jsoner`, `datarune.authward`, `datarune.parseferatu`, `datarune.adm`, `datarune.shared`, `datarune.postdb`) — unlike arcanematrix, this is why the `PYTHONPATH` fix above was needed. `bbndh` and `bbndh-dev` are separate deployments (see `webserver/bash/restart.sh`), so this app gets **two Dockerfiles** rather than one shared one:
+- `bbndh/docker/Dockerfile` — `FROM mkeph/webglyphs:datarune-latest`, `WORKDIR /app/bbndh`, runs `gunicorn bbn:bbn -w 1 -b 0.0.0.0:8001` (prod)
+- `bbndh/docker/Dockerfile.dev` — identical but binds `0.0.0.0:8002` (dev)
+- `bbndh/.github/workflows/build.yml` — `main`/`dev` branch push picks the matching Dockerfile and pushes `webglyphs:bbndh-latest` / `webglyphs:bbndh-dev` respectively:
+```yaml
+name: Build BBNDH
+on:
+  push:
+    branches: [main,dev]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag and Dockerfile
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "TAG=latest" >> $GITHUB_ENV
+            echo "DOCKERFILE=docker/Dockerfile" >> $GITHUB_ENV
+          else
+            echo "TAG=dev" >> $GITHUB_ENV
+            echo "DOCKERFILE=docker/Dockerfile.dev" >> $GITHUB_ENV
+          fi
+
+      - run: docker build -f ${{ env.DOCKERFILE }} -t ${{ secrets.DOCKERHUB_USERNAME }}/webglyphs:bbndh-${{ env.TAG }} .
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/webglyphs:bbndh-${{ env.TAG }}
+```
+- [x] Add `bbndh/docker/Dockerfile` (prod, port 8001)
+- [x] Add `bbndh/docker/Dockerfile.dev` (dev, port 8002)
+- [x] Add `.github/workflows/build.yml`, branch-aware Dockerfile + tag selection
+- [x] ~~Register a runner for the `bbndh` repo, installed as its own systemd service~~ — no longer needed; `runs-on: self-hosted` picks up the shared `jarvis-shared` org runner automatically
+- [ ] Add `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets to the `bbndh` repo (repo-level, per the org-secrets decision above)
+- [ ] Push to `main`/`dev` and confirm `bbndh-latest`/`bbndh-dev` land on Docker Hub
+- [ ] Migrate EC2 deploy: add `bbndh` + `bbndh-dev` services to `webserver/docker/docker-compose.yml` (ports 8001/8002), add both images to `docker-pull.sh`, update nginx to proxy to the containers, then remove the `bbndh`/`bbndh-dev` systemd restarts from `restart.sh`
+
+#### EC2 Deploy Side — `webserver` repo
+The `webserver` repo (checked out on the EC2 box, not JARVIS) holds the pull/restart side of the pipeline.
+
+- `docker/docker-compose.yml` — currently defines **only** the `arcanematrix` service (`image: mkeph/webglyphs:arcanematrix-latest`, port 8000:8000, `mem_limit: 256m`, `restart: unless-stopped`). `datarune` itself isn't deployed as its own container — it's only ever used as a base image (`FROM`) for arcanematrix.
+- `bash/docker-pull.sh` — pulls `webglyphs:datarune-latest` and `webglyphs:arcanematrix-latest`, then `docker compose -f ~/code/webserver/docker/docker-compose.yml up -d`. This is the "manual pull + restart on EC2" step referenced below, now scripted.
+- `bash/restart.sh` — restarts a set of **plain systemd services** (not docker-compose): `nginx`, `bbndh`, `bbndh-dev`, `bitwiz`, `familiar`, `snallygaster`, `gng`, `gng-dev` (several are commented out: `am`, `dover`, `admin`, `nee`). These apps are not containerized yet — they run directly on the EC2 host.
 
 #### Future steps (not yet implemented)
-- Wire arcanematrix's workflow to actually build its container (`docker build` step using `datarune-base:latest`) and push to Docker Hub
-- Manually pull the updated image on EC2 and restart via docker-compose
-- Repeat runner registration + workflow for the other datarune apps (bbndh, gng, familiar, passman, snallygaster)
-- Open question: should a datarune-base rebuild automatically trigger dependent app rebuilds (e.g. via `repository_dispatch`), or stay manual? Leaning manual for now given project size.
+- Manually pull the updated image on EC2 and restart via docker-compose — scripted already (`docker-pull.sh`), but only wired up for `arcanematrix`; still a manual trigger, not automated
+- `bbndh` (+ `bbndh-dev`) — Dockerfiles + workflow done (see above); still needs runner + secrets registration and the EC2 docker-compose/nginx migration
+- Remaining apps not yet started — corrected list based on `webserver/bash/restart.sh`: `bitwiz`, `familiar`, `snallygaster`, `gng` (+ `gng-dev`). Note this differs from the original plan list (which said `passman` — no longer accurate; `bitwiz` replaces it). `gng` also uses `datarune.authward` per `bbndh/plan/authward_oauth_plan.md`, so it will need the same `PYTHONPATH` base image and will likely need its own dev-variant Dockerfile too.
+- For each of those, this is two separate migrations, not just copying the workflow file:
+  1. Add `.github/workflows/build.yml` (following the datarune/arcanematrix/bbndh pattern) plus repo-level `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets so the app builds and pushes to `webglyphs:<app>-latest` — **no runner registration needed anymore**, `runs-on: self-hosted` picks up the shared `jarvis-shared` org runner automatically
+  2. Migrate the app's actual deployment on EC2 from a systemd service (as restart.sh currently manages it) to a docker-compose service in `webserver/docker/docker-compose.yml`, and add its image to `docker-pull.sh`
+- Resolved: `datarune` rebuilds do **not** auto-trigger dependent rebuilds — decided to stay manual (see "Cross-Repo Rebuild Ordering" above). Push `datarune` first, then each dependent, in that order.
 
 ---
 
