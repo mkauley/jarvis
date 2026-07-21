@@ -443,7 +443,50 @@ The voice pipeline chains: **Wake word → Whisper (STT) → Ollama (brain) → 
 - Voice cloning with Piper (the Wyoming-native alternative) is less straightforward — evaluate options when reaching this phase
 - Do not remove the Coqui container until a cloning solution is confirmed
 
-### Phase 8 — Remote Access (HA Mobile App + NAS)
+### Phase 8 — Build Server (GitHub Actions + JARVIS self-hosted runner)
+Offload Docker image builds to JARVIS. Push to main → JARVIS builds → pushes to Docker Hub. Deployment to EC2 is a deliberate manual step — the pipeline makes the artifact available, a human decides when production updates. Starting scope: datarune + arcanematrix only; other projects added one at a time after the pipeline is stable.
+
+#### Setup
+- [ ] Create Docker Hub access token: Docker Hub → Account Settings → Personal Access Tokens
+- [ ] Add GitHub secrets on the monorepo: `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (Settings → Secrets and variables → Actions)
+- [ ] Install self-hosted runner on JARVIS (repo Settings → Actions → Runners → New self-hosted runner → Linux x64)
+- [ ] Register runner as a systemd service: `sudo ./svc.sh install && sudo ./svc.sh start`
+- [ ] Confirm runner user is in the `docker` group: `sudo usermod -aG docker <runner-user>`
+
+#### Workflows
+- [ ] Write `.github/workflows/build-datarune.yml` — triggers on push to `main` with changes under `datarune/`; builds and pushes `mkauley/datarune:latest` to Docker Hub; on success, triggers arcanematrix workflow via `workflow_dispatch`
+- [ ] Write `.github/workflows/build-arcanematrix.yml` — triggers on push to `main` with changes under `arcanematrix/` OR called by datarune workflow; pulls existing datarune base from Docker Hub, builds and pushes `mkauley/arcanematrix:latest`
+- [ ] Test arcanematrix-only change → confirm only arcanematrix rebuilds (datarune pulled from Hub, not rebuilt)
+- [ ] Test datarune-only change → confirm datarune rebuilds, then cascades to arcanematrix
+- [ ] Test unrelated project change → confirm no workflows trigger
+
+#### Future Projects (add one at a time after pipeline is stable)
+- [ ] bbndh + bbndh-dev (dev variant builds from `dev` branch)
+- [ ] gng + gng-dev
+- [ ] familiar
+- [ ] snallygaster
+
+### Build Server Notes
+- Self-hosted runner runs as a systemd service (`actions.runner.*`) — survives reboots
+- Runner user must be in the `docker` group or `docker build`/`docker push` will fail with permission errors
+- Use `DOCKERHUB_TOKEN` (access token), not your Docker Hub password — tokens are scoped and revocable
+- Cascade strategy: datarune workflow triggers downstream builds via `repository_dispatch` (cross-repo); downstream workflows accept both `push` and `repository_dispatch` as triggers; requires a PAT with `repo` scope stored as a secret in the datarune repo
+- Each repo needs its own runner registration (personal GitHub accounts don't support org-level runners) — same JARVIS machine, separate registration per repo
+- If only arcanematrix changes, datarune is pulled from Docker Hub as the base — no local rebuild
+- Downstream Dockerfiles must use `FROM mkauley/datarune:latest` (Docker Hub), not `FROM datarune-base:latest` (local tag) — runner has no guarantee the local tag exists
+- Add future projects by creating a new workflow file following the arcanematrix pattern — no changes to datarune workflow needed
+- **Gevent (deferred decision):** gunicorn async worker mode (`-w 1 -k gevent`) dramatically reduces per-container memory vs. pre-fork workers; works well for I/O-bound Flask+SQLAlchemy apps; requires `pip install gevent` and gevent-aware SQLAlchemy pool config; evaluate before finalizing worker counts in Dockerfiles
+
+#### main vs. dev branch builds (bbndh, gng)
+bbndh and gng each have two live environments: production (main branch) and dev (dev branch), served by separate containers. One workflow file handles both:
+- Push to `main` → builds `mkauley/bbn:latest`
+- Push to `dev` → builds `mkauley/bbn-dev:latest`
+- Branch name is checked at runtime (`github.ref_name`) to set the image tag — no duplicate workflow files needed
+- Datarune cascade complication: if datarune changes, it must trigger downstream workflows twice — once targeting `main` (production image) and once targeting `dev` (dev image) via separate `repository_dispatch` calls
+
+---
+
+### Phase 9 — Remote Access (HA Mobile App + NAS)
 Tailscale creates an encrypted private network between your devices. Your server never exposes ports to the public internet, but you can access everything as if you're on your home network from anywhere.
 
 - [ ] Install Tailscale on the server:
@@ -455,7 +498,7 @@ sudo tailscale up
 - [ ] Connect Home Assistant app via Tailscale IP
 - [ ] Access NAS shares via Tailscale IP from any device (same as local access, just through Tailscale)
 
-### Phase 9 — 3D Printer (OctoPrint)
+### Phase 10 — 3D Printer (OctoPrint)
 - [ ] Plug Prusa MK3S+ into JARVIS via USB and run `ls /dev/tty*` to confirm device path — likely `/dev/ttyACM0` (not `/dev/ttyUSB0`); update docker-compose octoprint `devices:` entry accordingly before starting the container
 - [ ] Identify printer model and confirm USB cable compatibility
 - [ ] Connect 3D printer to JARVIS via USB cable
@@ -476,7 +519,7 @@ ls /dev/tty* | grep -i usb
 - ⚠️ OctoPrint service is commented out in docker-compose until printer is connected — uncomment before starting
 - USB device path may vary — always verify with `ls /dev/tty*` before starting the container
 
-### Phase 10 — File Sync (Nextcloud + rclone)
+### Phase 11 — File Sync (Nextcloud + rclone)
 
 #### rclone — Google Drive mirror
 rclone runs directly on the OS (not in Docker) and syncs Google Drive to `/mnt/nas/gdrive` on a schedule.
@@ -514,7 +557,7 @@ crontab -e
 | `/mnt/nas/nextcloud-db` | Nextcloud MariaDB database |
 | `/mnt/nas/gdrive` | rclone Google Drive mirror (one copy, surfaced in Nextcloud via external storage) |
 
-### Phase 11 — Image Generation (Fooocus)
+### Phase 12 — Image Generation (Fooocus)
 Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for VRAM, so it runs on-demand — brought up when needed, torn down when done. Set `OLLAMA_KEEP_ALIVE=0` so Ollama unloads its model immediately after each request, freeing VRAM before Fooocus starts.
 
 - [x] Add Fooocus service to `docker/docker-compose.yml` (commented out by default)
@@ -558,7 +601,7 @@ Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for V
 - `bash ~/code/jarvis/bash/fooocus-down.sh` — stops Fooocus, restores Ollama
 - Most flexible — soft mode for casual use, hard switch available when needed
 
-### Phase 12b — VPN (WireGuard) ✅ COMPLETE
+### Phase 13b — VPN (WireGuard) ✅ COMPLETE
 Route all of JARVIS's outbound internet traffic through a VPN provider for ISP-level privacy. WireGuard runs natively on the OS (not in Docker) for system-wide coverage.
 
 **Provider: ProtonVPN ✅ (already subscribed)**
@@ -602,7 +645,7 @@ curl ifconfig.me
 
 ---
 
-### Phase 12 — drone0 (Second Voice Satellite)
+### Phase 13 — drone0 (Second Voice Satellite)
 Add a second Wyoming satellite in a different room. Follows the same hardware and software stack as drone1. Naming scheme continues: `drone0` (or next sequential number decided at setup time).
 
 - Hardware: Raspberry Pi 4 + KEYESTUDIO ReSpeaker 2-Mic Pi HAT V1.0 + speaker (8ohm 3W JST-PH2.0)
@@ -631,7 +674,7 @@ Add a second Wyoming satellite in a different room. Follows the same hardware an
 
 ---
 
-### Phase 13 — World of Darkness RAG (AI Lore Assistant)
+### Phase 14 — World of Darkness RAG (AI Lore Assistant)
 Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector database, then wires it to a dedicated Ollama persona in Open WebUI. The model will retrieve relevant passages at query time and answer questions grounded in the actual source material.
 
 **Depends on:** External PDF-to-text conversion project (WoD books → plain text files)
@@ -665,7 +708,7 @@ Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector da
 - [ ] Test citation behavior: confirm model references book names when relevant
 - [ ] Test edge cases: questions spanning multiple books, contradictions between editions
 
-### Phase 13 WoD RAG Notes
+### Phase 14 WoD RAG Notes
 - RAG chosen over fine-tuning: keeps answers grounded in actual source text, no weight retraining required, easy to update when new books are added
 - ChromaDB is the simplest self-hosted vector DB — no auth required for local use, persistent storage via bind mount
 - `nomic-embed-text` is the recommended embedding model for Ollama RAG — fast, good quality, small footprint
