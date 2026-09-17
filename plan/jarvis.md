@@ -461,10 +461,10 @@ Offload Docker image builds to JARVIS. Push to main → JARVIS builds → pushes
 - [ ] Test unrelated project change → confirm no workflows trigger
 
 #### Future Projects (add one at a time after pipeline is stable)
-- [ ] bbndh + bbndh-dev (dev variant builds from `dev` branch)
-- [ ] gng + gng-dev
-- [ ] familiar
-- [ ] snallygaster
+- [x] bbndh + bbndh-dev (dev variant builds from `dev` branch)
+- [x] gng + gng-dev
+- [x] familiar (includes snallygaster — same repo)
+- [x] snallygaster
 
 ### Build Server Notes
 - Self-hosted runner runs as a systemd service (`actions.runner.*`) — survives reboots
@@ -643,22 +643,25 @@ curl ifconfig.me
 - ProtonVPN's Linux WireGuard config does not include PostUp/PreDown kill switch rules — traffic will fall back to real IP if tunnel drops; acceptable for home server ISP privacy use case
 - To switch servers: `sudo wg-quick down jarvis-IS-US-1`, copy new `.conf` to `/etc/wireguard/`, bring up new tunnel; can keep multiple `.conf` files and swap as needed
 
-#### Split-Tunnel for Docker Hub Traffic (planned, not yet implemented)
+#### Split-Tunnel for Docker Hub + GitHub Actions Traffic (planned, not yet implemented)
 **Problem confirmed:** the Secure Core route (US → Iceland → exit) adds real, measurable unreliability to the path from JARVIS to Docker Hub specifically — not a JARVIS resource issue (memory checked fine), not a dead tunnel (WireGuard handshake stayed healthy throughout). Diagnosed via `ping hub.docker.com`:
 - **Tunnel up:** ~260ms latency, ~30% packet loss
 - **Tunnel down:** ~5-7ms latency, 0% packet loss
 
 This is the root cause of several CI/CD pipeline failures in the same session: a `docker push` that stalled ~15 minutes on `datarune-latest`, a `docker/login-action` failure (`TLS handshake timeout` reaching `registry-1.docker.io`), and a `docker build` failure (`context deadline exceeded`) — all reaching the same host, all cleared up when tested with the tunnel down.
 
+**Confirmed 2026-08-10: GitHub's Actions coordination API is affected too, not just Docker Hub.** A job sat stuck as "Queued" in the GitHub web UI despite `actions.runner.Arcane-Matrix.jarvis.service` showing active/up in systemd, and despite a `svc.sh stop && start` restart. `~/actions/_diag/Runner_*.log` showed `System.Threading.Tasks.TaskCanceledException` while establishing the VSS connection (`VssServerDataProvider.ConnectAsync` → `EstablishVssConnection`) — a network-level connection timeout, same signature as the Docker Hub packet loss. Taking the tunnel down (`sudo wg-quick down jarvis-IS-US-1`) immediately unstuck the job. Means the split-tunnel exception list needs to cover GitHub's Actions coordination hostnames as well as Docker Hub's, not just the latter.
+
 **Options considered:**
 1. Manual toggle (`wg-quick down`/`up` around CI sessions) — zero setup, works today, but manual and drops VPN protection for *everything* during that window, not just CI traffic
-   - ⚠️ Gotcha: toggling the VPN mid-session breaks `jarvis-shared`'s persistent connection to GitHub's Actions coordination service — a queued job will sit stuck on "Waiting for a runner to pick up this job..." until the runner service is restarted. Fix: `cd ~/actions/shared && sudo ./svc.sh stop && sudo ./svc.sh start` after toggling the tunnel either direction, don't assume it reconnects on its own.
+   - ⚠️ Gotcha: toggling the VPN mid-session breaks `jarvis-shared`'s persistent connection to GitHub's Actions coordination service — a queued job will sit stuck on "Waiting for a runner to pick up this job..." until the runner service is restarted. Fix: `cd ~/actions/shared && sudo ./svc.sh stop && sudo ./svc.sh start` after toggling the tunnel either direction, don't assume it reconnects on its own. Confirmed 2026-08-10 that even this restart doesn't always help if the tunnel is still up — the fix that actually worked was taking the tunnel down first.
 2. Swap Secure Core for a plain single-hop ProtonVPN config — one `.conf` file swap, fixes it for all traffic, but permanently trades away the extra anonymity hop for all traffic, not just CI
-3. **Chosen: destination-based split-tunnel, so only Docker Hub traffic bypasses the tunnel; Secure Core stays fully intact for everything else**
+3. **Chosen: destination-based split-tunnel, so only Docker Hub + GitHub Actions traffic bypasses the tunnel; Secure Core stays fully intact for everything else**
 
 **Plan for option 3 (not yet implemented — do when there's time to test carefully, since this touches core routing on a box that also runs HA/NAS/voice pipeline):**
 - Docker Hub is Cloudflare-fronted with rotating IPs (`registry-1.docker.io`, `auth.docker.io`, etc.) — can't pin a static IP/CIDR exception, needs to resolve dynamically
-- `dnsmasq` configured to watch Docker Hub's hostnames and auto-populate an `ipset` with whatever IPs they currently resolve to
+- GitHub's Actions coordination endpoints need the same treatment — likely `*.actions.githubusercontent.com`, `pipelines.actions.githubusercontent.com`, and `vstsagentpackage.azureedge.net` (Azure/Fastly-fronted, also rotating IPs); confirm exact hostnames from the runner's diag log or by tracing what `Runner.Listener` actually connects to
+- `dnsmasq` configured to watch both Docker Hub's and GitHub Actions' hostnames and auto-populate an `ipset` with whatever IPs they currently resolve to
 - An `ip rule` routing traffic matching that `ipset` via the normal table (real ISP gateway) instead of the WireGuard table
 - That rule needs **higher priority** than the one `wg-quick` installs (`ip -4 rule add not fwmark 51820 table 51820`), so it's evaluated first and wins for just that traffic
 - Everything else continues through Secure Core unchanged
@@ -829,7 +832,7 @@ jobs:
 - [x] Added `ENV PYTHONPATH=/app` to `datarune/docker/Dockerfile` — needed so downstream apps that actually `import datarune.*` (e.g. bbndh) can resolve the package regardless of their own `WORKDIR`. Not needed by arcanematrix, since `am.py` never imports from `datarune`.
 - [ ] Confirm `datarune-latest`/`datarune-dev` actually lands on Docker Hub after a real push (not yet independently verified)
 
-#### bbndh — Step 1: Build and Push (Dockerfiles + workflow done; runner/secrets/EC2 side pending)
+#### bbndh — Step 1: Build and Push (Dockerfiles + workflow + secrets done, containerized; EC2 deploy side pending)
 `bbn.py` (Flask app variable `bbn`) genuinely imports the `datarune` package (`datarune.jsoner`, `datarune.authward`, `datarune.parseferatu`, `datarune.adm`, `datarune.shared`, `datarune.postdb`) — unlike arcanematrix, this is why the `PYTHONPATH` fix above was needed. `bbndh` and `bbndh-dev` are separate deployments (see `webserver/bash/restart.sh`), so this app gets **two Dockerfiles** rather than one shared one:
 - `bbndh/docker/Dockerfile` — `FROM mkeph/webglyphs:datarune-latest`, `WORKDIR /app/bbndh`, runs `gunicorn bbn:bbn -w 1 -b 0.0.0.0:8001` (prod)
 - `bbndh/docker/Dockerfile.dev` — identical but binds `0.0.0.0:8002` (dev)
@@ -869,8 +872,8 @@ jobs:
 - [x] Add `bbndh/docker/Dockerfile.dev` (dev, port 8002)
 - [x] Add `.github/workflows/build.yml`, branch-aware Dockerfile + tag selection
 - [x] ~~Register a runner for the `bbndh` repo, installed as its own systemd service~~ — no longer needed; `runs-on: self-hosted` picks up the shared `jarvis-shared` org runner automatically
-- [ ] Add `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets to the `bbndh` repo (repo-level, per the org-secrets decision above)
-- [ ] Push to `main`/`dev` and confirm `bbndh-latest`/`bbndh-dev` land on Docker Hub
+- [x] Add `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets to the `bbndh` repo (repo-level, per the org-secrets decision above)
+- [x] Push to `main`/`dev` and confirm `bbndh-latest`/`bbndh-dev` land on Docker Hub
 - [ ] Migrate EC2 deploy: add `bbndh` + `bbndh-dev` services to `webserver/docker/docker-compose.yml` (ports 8001/8002), add both images to `docker-pull.sh`, update nginx to proxy to the containers, then remove the `bbndh`/`bbndh-dev` systemd restarts from `restart.sh`
 
 #### EC2 Deploy Side — `webserver` repo
@@ -882,9 +885,9 @@ The `webserver` repo (checked out on the EC2 box, not JARVIS) holds the pull/res
 
 #### Future steps (not yet implemented)
 - Manually pull the updated image on EC2 and restart via docker-compose — scripted already (`docker-pull.sh`), but only wired up for `arcanematrix`; still a manual trigger, not automated
-- `bbndh` (+ `bbndh-dev`) — Dockerfiles + workflow done (see above); still needs runner + secrets registration and the EC2 docker-compose/nginx migration
-- Remaining apps not yet started — corrected list based on `webserver/bash/restart.sh`: `bitwiz`, `familiar`, `snallygaster`, `gng` (+ `gng-dev`). Note this differs from the original plan list (which said `passman` — no longer accurate; `bitwiz` replaces it). `gng` also uses `datarune.authward` per `bbndh/plan/authward_oauth_plan.md`, so it will need the same `PYTHONPATH` base image and will likely need its own dev-variant Dockerfile too.
-- For each of those, this is two separate migrations, not just copying the workflow file:
+- Containerized (Dockerfiles + workflow + secrets done, building/pushing to Docker Hub): `arcanematrix`, `datarune`, `bbndh` (+ `bbndh-dev`), `gng` (+ `gng-dev`), `familiar` (repo also covers `snallygaster` — same repo, both bots). All except `arcanematrix` still need the EC2 docker-compose/nginx migration (see the two-step process below) — they currently still run as plain systemd services per `webserver/bash/restart.sh`.
+- Remaining app not yet containerized — corrected list based on `webserver/bash/restart.sh`: `bitwiz`. Note this differs from the original plan list (which said `passman` — no longer accurate; `bitwiz` replaces it).
+- For each remaining app, this is two separate migrations, not just copying the workflow file:
   1. Add `.github/workflows/build.yml` (following the datarune/arcanematrix/bbndh pattern) plus repo-level `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets so the app builds and pushes to `webglyphs:<app>-latest` — **no runner registration needed anymore**, `runs-on: self-hosted` picks up the shared `jarvis-shared` org runner automatically
   2. Migrate the app's actual deployment on EC2 from a systemd service (as restart.sh currently manages it) to a docker-compose service in `webserver/docker/docker-compose.yml`, and add its image to `docker-pull.sh`
 - Resolved: `datarune` rebuilds do **not** auto-trigger dependent rebuilds — decided to stay manual (see "Cross-Repo Rebuild Ordering" above). Push `datarune` first, then each dependent, in that order.
