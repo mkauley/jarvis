@@ -557,6 +557,59 @@ crontab -e
 | `/mnt/nas/nextcloud-db` | Nextcloud MariaDB database |
 | `/mnt/nas/gdrive` | rclone Google Drive mirror (one copy, surfaced in Nextcloud via external storage) |
 
+### Phase 11b — novelWriter Sync (Syncthing)
+Keep novelWriter projects in sync across chopper, Melkhior and JARVIS with Syncthing. It syncs peer-to-peer and nothing is stored by a third party. JARVIS is the hub and the master copy: it's always on, it's the only peer the other two connect to, and it keeps the file version history. Writing happens on chopper and Melkhior.
+
+**Topology (hub and spoke):**
+```
+chopper  <──>  JARVIS  <──>  Melkhior
+               (hub, always on, versioned)
+```
+- Folder `novelwriter` is **Send & Receive** on all three. JARVIS is not set to Send Only, because Send Only would reject edits made on the laptop and desktop.
+- chopper and Melkhior each share the folder with **JARVIS only**, not with each other. Every change goes through JARVIS, and the two clients don't need to be online at the same time.
+- JARVIS uses **Staggered File Versioning** (max age 365 days). Overwritten or deleted files are kept in `.stversions/`, which protects you if a client deletes something. Clients use **Trash Can** versioning (7 days).
+
+#### JARVIS — Docker service
+- [ ] Add to `docker/docker-compose.yml`:
+```yaml
+  syncthing:
+    image: syncthing/syncthing
+    container_name: syncthing
+    hostname: jarvis
+    network_mode: host          # 8384 GUI, 22000 tcp/udp sync, 21027 udp discovery
+    environment:
+      - PUID=1000               # mkeph
+      - PGID=1000
+    volumes:
+      - /mnt/nas/docker/syncthing:/var/syncthing/config
+      - /mnt/nas/sync:/var/syncthing/Sync
+    restart: unless-stopped
+```
+- [ ] `sudo mkdir -p /mnt/nas/docker/syncthing /mnt/nas/sync/novelwriter && sudo chown -R mkeph:family /mnt/nas/sync /mnt/nas/docker/syncthing`
+- [ ] Start: `bash ~/code/jarvis/bash/container.sh start syncthing`
+- [ ] Open the GUI at `http://jarvis:8384` and **set a GUI username and password right away** (Settings → GUI)
+- [ ] Copy JARVIS's Device ID (Actions → Show ID)
+
+#### chopper (Nobara)
+- [ ] `sudo dnf install syncthing && systemctl --user enable --now syncthing`
+- [ ] Open `http://127.0.0.1:8384`, add JARVIS as a remote device, and accept the device on the JARVIS GUI
+- [ ] Add folder: ID `novelwriter`, path `~/Documents/novelwriter`, shared with JARVIS, Trash Can versioning
+
+#### Melkhior (Linux Mint)
+- [ ] Install from the official Syncthing apt repo (the Mint/Ubuntu package lags behind): https://apt.syncthing.net
+- [ ] `systemctl --user enable --now syncthing`
+- [ ] Add JARVIS as a remote device and accept the share for folder `novelwriter` (same path as on chopper)
+
+#### Seeding
+- [ ] Put the existing novelWriter project(s) on **one** machine first and let them sync to JARVIS. Only then accept the share on the other client. If two machines start with different copies, you get conflicts right away.
+
+### Syncthing Notes
+- **Close novelWriter before switching machines.** Syncthing doesn't merge. If both machines edit the same file between syncs, it keeps both versions and names one `*.sync-conflict-*`. novelWriter's `nwProject.lock` also syncs and warns you if the project is open somewhere else. If a machine dies mid-session, the lock can go stale; tell novelWriter to override it.
+- **Off the home network (Melkhior):** global discovery plus relays work without opening any ports. Relayed traffic is end-to-end encrypted and isn't stored. Once Tailscale (Phase 9) is up, you can instead add JARVIS's Tailscale address under Device → Advanced → Addresses (`tcp://<tailscale-ip>:22000`).
+- To restore an old version, use the folder's **Versions** button in the JARVIS GUI, or copy it out of `/mnt/nas/sync/novelwriter/.stversions/`.
+- `/mnt/nas/sync` is inside the Samba share, so the master copy can also be browsed at `\\jarvis\jarvis\sync`. Don't edit it there while clients are syncing.
+- Syncthing is not a backup by itself: a mistake syncs everywhere. The versioning on JARVIS is the safety net. novelWriter's own zip backups (Tools → Backup) can also point at `/mnt/jarvis/backups/novelwriter` (outside the synced folder).
+
 ### Phase 12 — Image Generation (Fooocus)
 Fooocus is a Stable Diffusion image generation UI. It competes with Ollama for VRAM, so it runs on-demand — brought up when needed, torn down when done. Set `OLLAMA_KEEP_ALIVE=0` so Ollama unloads its model immediately after each request, freeing VRAM before Fooocus starts.
 
