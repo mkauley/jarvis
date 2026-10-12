@@ -701,10 +701,23 @@ Add a second Wyoming satellite in a different room. Follows the same hardware an
 ### Phase 14 — World of Darkness RAG (AI Lore Assistant)
 Build a RAG pipeline that embeds the White Wolf WoD book corpus into a vector database, then wires it to a dedicated Ollama persona in Open WebUI. The model will retrieve relevant passages at query time and answer questions grounded in the actual source material.
 
-**Depends on:** External PDF-to-text conversion project (WoD books → plain text files)
+**Depends on:** the Palimpsest OCR pipeline (`~/code/sanguinarium` locally,
+`git@github.com:mkauley/palimpsest.git`) — `palimpsest.py bulk <pdf_dir>
+<output_dir>` OCRs a directory of WoD PDFs via `marker-pdf` and optionally
+cleans the output through this same JARVIS's Ollama (`gemma3:27b`),
+producing one `.txt` per book in `<output_dir>/clean/`. That's the plain-text
+corpus this phase consumes. **Not yet set up on JARVIS** — the pipeline was
+written/tested elsewhere; it needs its own setup pass here first (repo
+clone, `python3-pip`/`python3-venv`, `pip install marker-pdf` in a venv, a
+smoke-test run against one real book — `marker-pdf`'s output layout hasn't
+been verified firsthand yet) before it can produce this phase's input. Also
+needs its `plan/plan.md` usage examples corrected from Melkhior's CIFS
+mount path (`/mnt/jarvis/jeff/Games/White Wolf`) to the equivalent local
+path under `/mnt/nas` once run natively on JARVIS.
 
 #### Step 1 — Corpus Preparation
-- [ ] Confirm output format from the PDF conversion project (plain `.txt` files, one per book, or chunked JSON)
+- [ ] Set up Palimpsest on JARVIS (see "Depends on" above) and run a bulk OCR pass over the WoD PDF library
+- [ ] Confirm output format from the PDF conversion project (plain `.txt` files, one per book — this is what `palimpsest.py bulk` produces in `<output_dir>/clean/`)
 - [ ] Decide on storage location: `/mnt/nas/wod/corpus/` — one file per book
 - [ ] Review a few converted files for quality — check for garbled OCR, missing text, encoding issues
 
