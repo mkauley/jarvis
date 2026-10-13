@@ -1,4 +1,5 @@
 services:
+  # Portainer — web UI for managing Docker containers, images and volumes
   portainer:
     image: portainer/portainer-ce
     container_name: portainer
@@ -11,6 +12,7 @@ services:
     networks:
       - backend
 
+  # Ollama — runs local LLMs on the GPU; the AI brain behind JARVIS and Open WebUI
   ollama:
     image: ollama/ollama
     container_name: ollama
@@ -31,6 +33,7 @@ services:
     networks:
       - backend
 
+  # Home Assistant — smart home hub; runs automations and the voice assistant pipeline
   homeassistant:
     image: ghcr.io/home-assistant/home-assistant:stable
     container_name: homeassistant
@@ -42,6 +45,7 @@ services:
     security_opt:
       - label=disable
 
+  # Whisper (Wyoming) — speech-to-text for Home Assistant voice commands
   whisper:
     image: rhasspy/wyoming-whisper
     container_name: whisper
@@ -61,6 +65,7 @@ services:
     networks:
       - backend
 
+  # openWakeWord (Wyoming) — listens for the wake word to start a voice command
   wyoming-openwakeword:
     image: rhasspy/wyoming-openwakeword
     container_name: wyoming-openwakeword
@@ -72,6 +77,7 @@ services:
     networks:
       - backend
 
+  # Piper (Wyoming) — fast text-to-speech for Home Assistant voice replies
   wyoming-piper:
     image: rhasspy/wyoming-piper
     container_name: wyoming-piper
@@ -84,6 +90,7 @@ services:
     networks:
       - backend
 
+  # Coqui TTS — higher-quality neural text-to-speech server (GPU)
   coqui-tts:
     image: ghcr.io/coqui-ai/tts
     container_name: coqui-tts
@@ -104,6 +111,7 @@ services:
     networks:
       - backend
 
+  # Fooocus — Stable Diffusion image generation UI; on-demand, shares VRAM with Ollama
   fooocus:
     image: ghcr.io/lllyasviel/fooocus
     container_name: fooocus
@@ -123,6 +131,7 @@ services:
     networks:
       - backend
 
+  # OctoPrint — web control for the 3D printer over USB (disabled)
 #  octoprint:
 #    image: octoprint/octoprint
 #    container_name: octoprint
@@ -136,6 +145,21 @@ services:
 #    networks:
 #      - backend
 
+  # Syncthing — peer-to-peer file sync; hub for the novelWriter projects
+  syncthing:
+    image: syncthing/syncthing
+    container_name: syncthing
+    hostname: jarvis
+    network_mode: host          # 8384 GUI, 22000 tcp/udp sync, 21027 udp discovery
+    environment:
+      - PUID=1000               # mkeph
+      - PGID=1000
+    volumes:
+      - /mnt/nas/docker/syncthing:/var/syncthing/config
+      - /mnt/nas/sync:/var/syncthing/Sync
+    restart: unless-stopped
+
+  # Open WebUI — ChatGPT-style web chat interface for the Ollama models
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
@@ -151,6 +175,7 @@ services:
     networks:
       - backend
 
+  # MariaDB — database backing Nextcloud
   nextcloud-db:
     image: mariadb:10.11
     container_name: nextcloud-db
@@ -165,6 +190,7 @@ services:
     networks:
       - backend
 
+  # Nextcloud — self-hosted cloud storage (files, Google Drive mirror)
   nextcloud:
     image: nextcloud
     container_name: nextcloud
